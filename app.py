@@ -8,7 +8,7 @@ from lynk.server import Lynk, json_response, render_template, send_file, abort
 # Create the Lynk application with some security options
 # ----------------------------------------------------------------------
 app = Lynk(
-    host="127.0.0.1",
+    host="0.0.0.0",
     port=8765,
     rate_limit=20,              # max 20 messages per second per client
     max_body_size=1024 * 1024,   # 1 MiB
