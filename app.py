@@ -189,7 +189,7 @@ if __name__ == "__main__":
     </div>
 
     <script>
-        const client = new LynkClient('ws://127.0.0.1:8765');
+        const client = new LynkClient((location.protocol === "https:" ? "wss://" : "ws://") + location.host);
         const chatDiv = document.getElementById('chat');
         const usersList = document.getElementById('users');
         const statusSpan = document.getElementById('status');
