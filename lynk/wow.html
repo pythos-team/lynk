@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Lynk Chat with Rooms</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 20px auto; }
+        #container { display: flex; gap: 20px; }
+        #left-panel { flex: 1; }
+        #right-panel { width: 200px; border-left: 1px solid #ccc; padding-left: 10px; }
+        #messages { border: 1px solid #ccc; height: 400px; overflow-y: scroll; padding: 10px; background: #f9f9f9; }
+        #users { list-style: none; padding: 0; }
+        #users li { padding: 5px; border-bottom: 1px solid #eee; }
+        .my-message { color: blue; }
+        .other-message { color: green; }
+        .system-message { color: gray; font-style: italic; }
+        #status { font-weight: bold; }
+    </style>
+    <script src="lynk/client.js"></script>
+</head>
+<body>
+    <h1>Lynk Chat with Rooms & Nicknames</h1>
+    
+    <div id="connection-area">
+        <input type="text" id="nickname" placeholder="Your nickname" value="User">
+        <input type="text" id="room" placeholder="Room name" value="lobby">
+        <button id="join-btn">Join Room</button>
+        <button id="leave-btn" disabled>Leave Room</button>
+        <span id="status">Disconnected</span>
+    </div>
+    
+    <div id="container">
+        <div id="left-panel">
+            <div id="messages"></div>
+            <div id="input-area" style="margin-top: 10px;">
+                <input type="text" id="message-input" placeholder="Type a message..." style="width: 80%;" disabled>
+                <button id="send-btn" disabled>Send</button>
+            </div>
+        </div>
+        <div id="right-panel">
+            <h3>Users in room</h3>
+            <ul id="users"></ul>
+        </div>
+    </div>
+
+    <script>
+        const client = new LynkClient('ws://localhost:8765');
+        const messagesDiv = document.getElementById('messages');
+        const usersList = document.getElementById('users');
+        const nicknameInput = document.getElementById('nickname');
+        const roomInput = document.getElementById('room');
+        const joinBtn = document.getElementById('join-btn');
+        const leaveBtn = document.getElementById('leave-btn');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+        const statusSpan = document.getElementById('status');
+
+        let currentRoom = null;
+        let connected = false;
+
+        function logMessage(text, className) {
+            const msgDiv = document.createElement('div');
+            msgDiv.textContent = text;
+            msgDiv.className = className || '';
+            messagesDiv.appendChild(msgDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function updateUserList(users) {
+            usersList.innerHTML = '';
+            users.forEach(user => {
+                const li = document.createElement('li');
+                li.textContent = `${user.nickname} (${user.id.substr(0,6)})`;
+                usersList.appendChild(li);
+            });
+        }
+
+        // Event handlers from server
+        client.on('room_info', (data) => {
+            currentRoom = data.room;
+            logMessage(`* Joined room: ${data.room} *`, 'system-message');
+            updateUserList(data.users);
+            // Enable messaging
+            messageInput.disabled = false;
+            sendBtn.disabled = false;
+            joinBtn.disabled = true;
+            leaveBtn.disabled = false;
+            roomInput.disabled = true;
+            nicknameInput.disabled = true;
+        });
+
+        client.on('room_users', (data) => {
+            updateUserList(data.users);
+        });
+
+        client.on('user_joined', (data) => {
+            logMessage(`* ${data.nickname} joined the room *`, 'system-message');
+            // Optionally refresh user list
+            client.emit('get_users', {});
+        });
+
+        client.on('user_left', (data) => {
+            logMessage(`* ${data.nickname} left the room *`, 'system-message');
+            client.emit('get_users', {});
+        });
+
+        client.on('chat_message', (data) => {
+            logMessage(`${data.nickname}: ${data.text}`, 'other-message');
+        });
+
+        client.on('error', (data) => {
+            logMessage(`! Error: ${data.msg}`, 'system-message');
+        });
+
+        // Connection handling (simplified: auto-connect on page load)
+        async function connect() {
+            try {
+                await client.connect();
+                connected = true;
+                statusSpan.textContent = 'Connected';
+                statusSpan.style.color = 'green';
+                logMessage('* Connected to server *', 'system-message');
+            } catch (err) {
+                statusSpan.textContent = 'Connection failed';
+                console.error(err);
+            }
+        }
+        connect();
+
+        // Join room
+        joinBtn.addEventListener('click', () => {
+            if (!connected) return;
+            const nickname = nicknameInput.value.trim() || 'Anonymous';
+            const room = roomInput.value.trim() || 'lobby';
+            client.emit('join', { nickname, room });
+        });
+
+        // Leave room
+        leaveBtn.addEventListener('click', () => {
+            if (!connected || !currentRoom) return;
+            client.emit('leave', {});
+            currentRoom = null;
+            messageInput.disabled = true;
+            sendBtn.disabled = true;
+            joinBtn.disabled = false;
+            leaveBtn.disabled = true;
+            roomInput.disabled = false;
+            nicknameInput.disabled = false;
+            updateUserList([]);
+            logMessage('* Left the room *', 'system-message');
+        });
+
+        // Send message
+        sendBtn.addEventListener('click', () => {
+            const text = messageInput.value.trim();
+            if (!text || !currentRoom) return;
+            client.emit('message', { text });
+            logMessage(`You: ${text}`, 'my-message');
+            messageInput.value = '';
+        });
+
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !sendBtn.disabled) {
+                sendBtn.click();
+            }
+        });
+    </script>
+</body>
+</html>
