@@ -42,11 +42,12 @@ Lynkio is a lightweight, pure‑Python framework for building real‑time web ap
 
 – No external dependencies (except soketDB for logging, which is optional).
 
+```
 ---
 
 ## Installation
 
-```python
+```bash
 pip install lynkio
 ```
 
