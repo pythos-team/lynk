@@ -1,0 +1,16 @@
+[
+  {
+    "query_id": "ba056563",
+    "query_text": "CREATE TABLE system_queries (query_id, query_text, execution_time, timestamp)",
+    "execution_time": 1761844619.936164,
+    "timestamp": "2025-10-30T17:16:59.936175",
+    "status": "success"
+  },
+  {
+    "query_id": "91c26941",
+    "query_text": "CREATE TABLE system_backups (backup_id, provider, timestamp, size, encrypted)",
+    "execution_time": 1761844620.0827072,
+    "timestamp": "2025-10-30T17:17:00.082716",
+    "status": "success"
+  }
+]

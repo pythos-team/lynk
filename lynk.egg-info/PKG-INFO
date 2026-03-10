@@ -1,0 +1,198 @@
+Metadata-Version: 2.4
+Name: lynk
+Version: 1.0.0
+Summary: Lynk – Real‑time event engine with native HTTP routing. Pure Python, standard library only.
+Home-page: https://github.com/pythos-team/lynk
+Author: Lynk Team
+Author-email: benmap40@gmail.com
+License: MIT
+Project-URL: Bug Reports, https://github.com/pythos-team/lynk/issues
+Project-URL: Source, https://github.com/pythos-team/lynk
+Project-URL: Documentation, https://github.com/pythos-team/lynk#readme
+Keywords: real-time,event-engine,http,websocket,asyncio,routing,middleware,pubsub,server
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Internet :: WWW/HTTP :: HTTP Servers
+Classifier: Topic :: Internet :: WWW/HTTP :: WSGI
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Requires-Python: >=3.7
+Description-Content-Type: text/markdown
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: keywords
+Dynamic: license
+Dynamic: project-url
+Dynamic: requires-python
+Dynamic: summary
+
+Lynk
+Lynk is a lightweight, pure-Python framework for building real-time web applications with native HTTP routing and event-driven architecture. No external dependencies are required beyond the Python standard library.
+Features
+🚀 Real-time Event Engine – Handle events, notifications, and WebSocket connections efficiently.
+🌐 Native HTTP Routing – Built-in routing for GET, POST, PUT, DELETE requests.
+🔌 Pub/Sub Support – Publish and subscribe to events across your application.
+⚡ Async-Ready – Fully compatible with Python’s asyncio.
+🧩 Middleware Support – Add custom middleware for requests, responses, or event hooks.
+🛠️ Plugins – Extend Lynk with reusable modules.
+🐍 Pure Python – No external dependencies; runs on Python 3.7+.
+Installation
+Install via PyPI:
+Bash
+Copy code
+pip install lynk
+Or from source:
+Bash
+Copy code
+git clone https://github.com/pythos-team/lynk.git
+cd lynk
+python setup.py install
+Quick Start
+Python
+Copy code
+from lynk import Lynk, Route
+
+app = Lynk()
+
+@app.route("/hello")
+def hello(req):
+    return "Hello, Lynk!"
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000)
+    
+    
+Full Chat Server Example
+This example demonstrates:
+HTTP routes
+REST API endpoints
+WebSocket events
+Background tasks
+Scheduled tasks
+Plugins
+Static file serving
+
+
+import os
+import time
+import logging
+from lynk import Lynk, json_response, render_template
+
+app = Lynk(
+    host="0.0.0.0",
+    port=8765,
+    rate_limit=20,         # max 20 messages/sec per client
+    max_body_size=1024*1024,
+    debug=True
+)
+
+# Enable CORS
+app.enable_cors(allowed_origins=["*"], allow_credentials=True)
+
+# Serve main chat page
+@app.get("/")
+async def index(req):
+    return render_template("index.html", context={"title": "Lynk Chat"})
+
+# Serve static files
+app.static("/static", "static")
+
+# REST API group
+api = app.group("/api")
+
+@api.get("/rooms")
+async def list_rooms(req):
+    rooms = [{"name": r, "members": len(m)} for r, m in app._rooms.items()]
+    return json_response(rooms)
+
+@api.get("/room/<room_name>/members")
+async def room_members(req, room_name):
+    members = app.get_room_clients(room_name)
+    return json_response(list(members))
+
+# WebSocket events
+@app.on("join")
+async def on_join(client, data):
+    room = data.get("room", "lobby")
+    nickname = data.get("nickname", "Anonymous")
+    client.session["nickname"] = nickname
+    client.session["room"] = room
+    app.join_room(client.id, room)
+    await app.emit_to_room(room, "user_joined", {"id": client.id, "nickname": nickname}, exclude=client.id)
+
+@app.on("leave")
+async def on_leave(client, data):
+    room = client.session.get("room")
+    if room:
+        nickname = client.session.get("nickname", "Anonymous")
+        app.leave_room(client.id, room)
+        await app.emit_to_room(room, "user_left", {"id": client.id, "nickname": nickname})
+
+@app.on("message")
+async def on_message(client, data):
+    room = client.session.get("room")
+    if room:
+        await app.emit_to_room(room, "chat", {
+            "from": client.id,
+            "nickname": client.session.get("nickname", "Anonymous"),
+            "text": data.get("text", "")
+        }, exclude=client.id)
+
+@app.on_binary
+async def on_binary(client, payload):
+    await client.send(payload, text=False)
+
+# Background task
+@app.task
+async def print_connections():
+    while True:
+        await asyncio.sleep(10)
+        print(f"Active WebSocket connections: {len(app._clients)}")
+
+# Scheduled task every 30 seconds
+@app.schedule(30)
+async def broadcast_server_time():
+    await app.emit_to_room("time", "server_time", {"time": time.time()})
+
+# Plugin example
+def health_check_plugin(app):
+    @app.get("/health")
+    async def health(req):
+        return "OK"
+app.use(health_check_plugin)
+
+# Run server
+if __name__ == "__main__":
+    os.makedirs("templates", exist_ok=True)
+    os.makedirs("static", exist_ok=True)
+    logging.basicConfig(level=logging.INFO)
+    app.run()
+    
+    
+This will create a full-featured real-time chat server using Lynk with HTTP, WebSockets, background tasks, and plugins. You can place your HTML, JS, and CSS in the templates and static directories.
+
+
+Documentation
+Full guides and API references:
+https://github.com/pythos-team/lynk#readme
+
+
+Contributing
+Fork the repository.
+Create a feature branch (git checkout -b feature-name).
+Commit your changes (git commit -m "Add new feature").
+Push to the branch (git push origin feature-name).
+Open a Pull Request.
+
+
+License
+MIT License – see LICENSE

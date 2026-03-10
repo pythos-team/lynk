@@ -1,0 +1,119 @@
+[
+  {
+    "method": "GET",
+    "path": "/",
+    "status_code": 200,
+    "client_ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+    "response_time": 0.018089771270751953,
+    "request_id": "4fb133f3-6216-4987-a767-ff0f83b94f4a"
+  },
+  {
+    "method": "GET",
+    "path": "/favicon.ico",
+    "status_code": 404,
+    "client_ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+    "response_time": 0.007870912551879883,
+    "request_id": "ddfa8daf-430c-45f2-97e0-bfec68a55999"
+  },
+  {
+    "method": "GET",
+    "path": "/favicon.ico",
+    "status_code": 404,
+    "client_ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+    "response_time": 0.012842893600463867,
+    "request_id": "aedfd522-4ea9-4e56-b803-28d1818cf1c0"
+  },
+  {
+    "method": "GET",
+    "path": "/",
+    "status_code": 200,
+    "client_ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+    "response_time": 0.0005855560302734375,
+    "request_id": "8c015254-0289-4d03-8fb2-6b1b91c5a1f0"
+  },
+  {
+    "method": "GET",
+    "path": "/logs/wss",
+    "status_code": 200,
+    "client_ip": "127.0.0.1",
+    "user_agent": "curl/8.18.0",
+    "response_time": 0.10092902183532715,
+    "request_id": "bd25e551-9248-4036-acd1-d18055f5e180"
+  },
+  {
+    "method": "GET",
+    "path": "/logs/runtime",
+    "status_code": 200,
+    "client_ip": "127.0.0.1",
+    "user_agent": "curl/8.18.0",
+    "response_time": 0.07079553604125977,
+    "request_id": "c60cc12f-c0db-4dcc-bf1e-18137473d0f5"
+  },
+  {
+    "method": "GET",
+    "path": "/logs/http",
+    "status_code": 200,
+    "client_ip": "127.0.0.1",
+    "user_agent": "curl/8.18.0",
+    "response_time": 0.0646064281463623,
+    "request_id": "cda6d254-883f-4604-83d9-b2054e864326"
+  },
+  {
+    "method": "GET",
+    "path": "/hello",
+    "status_code": 200,
+    "client_ip": "127.0.0.1",
+    "user_agent": "curl/8.18.0",
+    "response_time": 0.0012359619140625,
+    "request_id": "d99d12c9-67ca-4ee4-bcc6-5da4a36887da"
+  },
+  {
+    "method": "GET",
+    "path": "/redirect-test",
+    "status_code": 302,
+    "client_ip": "127.0.0.1",
+    "user_agent": "curl/8.18.0",
+    "response_time": 0.0010607242584228516,
+    "request_id": "0dd98461-c994-42bc-98ab-f314c49aa403"
+  },
+  {
+    "method": "GET",
+    "path": "/redirect-test",
+    "status_code": 302,
+    "client_ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+    "response_time": 0.0005514621734619141,
+    "request_id": "32a3e422-aeee-440f-8ee0-5a5b6476c60e"
+  },
+  {
+    "method": "GET",
+    "path": "/favicon.ico",
+    "status_code": 404,
+    "client_ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+    "response_time": 0.14811277389526367,
+    "request_id": "e57ba0a3-af80-4870-beb7-5dbd78b98bc9"
+  },
+  {
+    "method": "GET",
+    "path": "/hello",
+    "status_code": 200,
+    "client_ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+    "response_time": 0.0006878376007080078,
+    "request_id": "035c9ef9-9e68-4973-aace-7e94b42d7904"
+  },
+  {
+    "method": "GET",
+    "path": "/",
+    "status_code": 200,
+    "client_ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+    "response_time": 0.0005233287811279297,
+    "request_id": "ed9b58b3-efec-41af-8320-f0ba9ba0a8ca"
+  }
+]

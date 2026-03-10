@@ -1,0 +1,9 @@
+{
+  "columns": [
+    "query_id",
+    "query_text",
+    "execution_time",
+    "timestamp"
+  ],
+  "created_at": "2025-10-30T17:16:59.849842"
+}

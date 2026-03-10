@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 import time
-from lynk.server import Lynk, json_response, render_template, send_file, abort
+from lynkio import Lynk, json_response, render_template, send_file, abort
 
 # ----------------------------------------------------------------------
 # Create the Lynk application with some security options

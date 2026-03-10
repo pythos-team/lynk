@@ -35,6 +35,15 @@ import urllib.parse
 from collections import deque, defaultdict
 from contextvars import ContextVar
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, Union, Pattern
+from soketdb import database, env
+
+
+"""DATABASE INSTANCE"""
+
+db_instance = None
+_databases = None
+
+_auto_sync_log_global = None
 
 # ----------------------------------------------------------------------
 # Exceptions
@@ -408,8 +417,12 @@ class Lynk:
         rate_limit: Optional[int] = None,         # messages per second per client
         enable_keep_alive: bool = False,
         debug: bool = False,
+        enable_database: bool = False,
+        database_config: Optional[dict] = None,
     ):
         self.host = host
+        self.enable_database = enable_database
+        self.database_config = database_config
         self.port = port
         self.max_payload_size = max_payload_size
         self.max_message_size = max_message_size
@@ -461,6 +474,47 @@ class Lynk:
         # CORS settings (global)
         self.cors_allowed_origins = []
         self.cors_allow_credentials = False
+        
+    # ------------------------------------------------------------------
+    # DATABASE WRAPPER
+    def create_database(self, name: str = "lynkio_test_db", create_log_table: bool = False, auto_sync_log: bool = False):
+      """Create user database instance"""
+      global db_instance
+      global _databases
+      if self.enable_database:
+        config = self.database_config
+        if not config:
+          config = {
+            'primary_storage': 'local',
+            'backup_enabled': True,
+            'auto_backup_hours': 24,
+            'query_cache_enabled': True,
+            'auto_sync': True,
+            'google_drive_enabled': False,
+            'huggingface_enabled': False,
+            'aws_s3_enabled': False,
+            'dropbox_enabled': False
+          }
+        db = None
+        try:
+          db = database(name, config)
+          if db:
+            db_instance = db
+            _databases[name] = db
+            if create_log_table:
+              db.execute("CREATE TABLE WSS_LOGS ()")
+              db.execute("CREATE TABLE HTTP_LOGS ()")
+              db.execute("CREATE TABLE RUNTIME_LOGS ()")
+            if auto_sync_log:
+              global auto_sync_log_global
+              auto_sync_log_global = auto_sync_log
+            return db
+          return db
+        except Exception as e:
+          print(e)
+          return db
+      raise Exception("database is not enable.")
+          
 
     # ------------------------------------------------------------------
     # Public API: CORS
@@ -1267,12 +1321,14 @@ def send_file(filepath: str, base_dir: str = ".", content_type: Optional[str] = 
 # ----------------------------------------------------------------------
 # Template rendering helper
 # ----------------------------------------------------------------------
+
 def render_template(template_name: str, context: Optional[Dict[str, Any]] = None, template_dir: str = "templates") -> str:
     """
     Render an HTML template with variable substitution.
+    Supports nested keys using dot notation, e.g. {{ user.name }}.
 
     Looks for the template file in `template_dir` (relative to current working directory).
-    Variables in the template should be written as `{{ variable }}`.
+    Variables in the template should be written as `{{ variable }}` or `{{ variable.nested }}`.
     Returns the rendered HTML as a string.
     """
     if context is None:
@@ -1285,11 +1341,21 @@ def render_template(template_name: str, context: Optional[Dict[str, Any]] = None
     except FileNotFoundError:
         raise FileNotFoundError(f"Template not found: {template_path}")
 
-    for key, value in context.items():
-        placeholder = f"{{{{ {key} }}}}"
-        content = content.replace(placeholder, str(value))
+    def replace(match):
+        expr = match.group(1).strip()
+        parts = expr.split('.')
+        value = context
+        for part in parts:
+            if isinstance(value, dict) and part in value:
+                value = value[part]
+            else:
+                # path not found, return the original placeholder unchanged
+                return match.group(0)
+        return str(value)
 
-    return content
+    # Pattern matches {{ variable }} with optional dots, allowing spaces inside braces
+    pattern = r'{{\s*([^}\s]+(?:\.[^}\s]+)*)\s*}}'
+    return re.sub(pattern, replace, content)
 
 
 # ----------------------------------------------------------------------

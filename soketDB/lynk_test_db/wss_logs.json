@@ -1,0 +1,98 @@
+[
+  {
+    "client_id": "41068605-de18-46c4-b1b4-6af7d618300f",
+    "direction": "in",
+    "event": "connect",
+    "data": null,
+    "size": 0,
+    "opcode": null
+  },
+  {
+    "client_id": "41068605-de18-46c4-b1b4-6af7d618300f",
+    "direction": "out",
+    "event": "disconnect",
+    "data": null,
+    "size": 0,
+    "opcode": null
+  },
+  {
+    "client_id": "44017443-9ba4-4290-86e5-023802b1786e",
+    "direction": "in",
+    "event": "connect",
+    "data": null,
+    "size": 0,
+    "opcode": null
+  },
+  {
+    "client_id": "44017443-9ba4-4290-86e5-023802b1786e",
+    "direction": "out",
+    "event": "disconnect",
+    "data": null,
+    "size": 0,
+    "opcode": null
+  },
+  {
+    "client_id": "03e1712d-62dd-4d87-af5a-e84d9d3f029e",
+    "direction": "in",
+    "event": "connect",
+    "data": null,
+    "size": 0,
+    "opcode": null
+  },
+  {
+    "client_id": "03e1712d-62dd-4d87-af5a-e84d9d3f029e",
+    "direction": "in",
+    "event": "chat",
+    "data": "{\"text\": \"Hello dear \\ud83d\\ude18\"}",
+    "size": 47,
+    "opcode": null
+  },
+  {
+    "client_id": "03e1712d-62dd-4d87-af5a-e84d9d3f029e",
+    "direction": "out",
+    "event": "disconnect",
+    "data": null,
+    "size": 0,
+    "opcode": null
+  },
+  {
+    "client_id": "6e109f02-f365-44ad-b757-593ea7d760b4",
+    "direction": "in",
+    "event": "connect",
+    "data": null,
+    "size": 0,
+    "opcode": null
+  },
+  {
+    "client_id": "6e109f02-f365-44ad-b757-593ea7d760b4",
+    "direction": "out",
+    "event": "disconnect",
+    "data": null,
+    "size": 0,
+    "opcode": null
+  },
+  {
+    "client_id": "14cc5cd6-6390-4c2f-bbb1-8797c7a67e07",
+    "direction": "in",
+    "event": "connect",
+    "data": null,
+    "size": 0,
+    "opcode": null
+  },
+  {
+    "client_id": "14cc5cd6-6390-4c2f-bbb1-8797c7a67e07",
+    "direction": "in",
+    "event": "chat",
+    "data": "{\"text\": \"time\"}",
+    "size": 39,
+    "opcode": null
+  },
+  {
+    "client_id": "14cc5cd6-6390-4c2f-bbb1-8797c7a67e07",
+    "direction": "out",
+    "event": "disconnect",
+    "data": null,
+    "size": 0,
+    "opcode": null
+  }
+]
