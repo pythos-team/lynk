@@ -4,7 +4,7 @@
 – Real‑time event engine with native HTTP routing
 
 
-Lynk is a lightweight, pure‑Python framework for building real‑time web applications with native HTTP routing and event‑driven architecture. It runs on Python 3.7+ and has **no external dependencies** beyond the standard library (except optional integration with [soketDB](/soketdb) for logging).
+Lynkio is a lightweight, pure‑Python framework for building real‑time web applications with native HTTP routing and event‑driven architecture. It runs on Python 3.7+ and has **no external dependencies** beyond the standard library (except optional integration with [soketDB](/soketdb) for logging but it's builtin on dependencies required, except you need cloud backups).
 
 ---
 
@@ -62,7 +62,7 @@ available backups
 
 ---
 
-Quick Start
+## Quick Start
 
 Create a simple HTTP server:
 
@@ -81,9 +81,8 @@ if __name__ == "__main__":
 
 ---
 
-Detailed Usage
 
-HTTP Routing
+## HTTP Routing
 
 ```python
 @app.get("/hello")
@@ -104,7 +103,7 @@ async def user_handler(req, user_id):
         return {"deleted": user_id}
 ```
 
-WebSocket Events
+## WebSocket Events
 
 ```python
 @app.on("chat")
@@ -123,11 +122,11 @@ async def log_middleware(client, event, data):
     return data
 ```
 
-Integrated Database Logging
+## Integrated Database Logging
 
 Lynk can automatically log HTTP requests, WebSocket messages, and runtime events to a soketDB instance.
 
-Enabling Database Logging
+## Enabling Database Logging
 
 ```python
 app = Lynk(enable_database=True)
@@ -140,7 +139,7 @@ app.create_database(
 )
 ```
 
-Log Tables
+## Log Tables
 
 · http_logs: HTTP requests/responses.
 · wss_logs: WebSocket messages (both directions) and connection events.
@@ -154,7 +153,7 @@ Automatic Logging (when auto_sync_log=True)
 · Server start, stop, and any error in a scheduled task are logged.
 ```
 
-Manual Logging
+## Manual Logging
 
 You can insert custom log entries even when auto‑sync is off using add_log:
 
@@ -162,7 +161,7 @@ You can insert custom log entries even when auto‑sync is off using add_log:
 await app.add_log('runtime', level='WARNING', message='Custom check', source='my_handler')
 ```
 
-Querying Logs (Distributed Query API)
+## Querying Logs (Distributed Query API)
 
 Lynk keeps a global registry of all created databases. You can run queries on any registered database asynchronously:
 
@@ -179,7 +178,7 @@ The query_database method runs the query in a thread executor so it never blocks
 
 ---
 
-Full Chat Server Example with Logging
+## Full Chat Server Example with Logging
 
 Below is a complete real‑time chat server demonstrating HTTP routes, WebSocket events, background tasks, scheduled tasks, static file serving, and integrated logging.
 
@@ -296,7 +295,7 @@ if __name__ == "__main__":
 
 ---
 
-API Reference (Summary)
+## API Reference (Summary)
 
 ```python
 Lynk(**options)
@@ -322,7 +321,7 @@ Lynk(**options)
   }.
 ```
 
-Database Methods
+## Database Methods
 
 ```python
 · create_database(name, create_log_table=False, auto_sync_log=False) – Creates a soketDB instance, optionally creates log tables, and sets auto‑sync flag.
@@ -331,7 +330,7 @@ Database Methods
 · async query_database(db_name, query) – Execute a raw soketDB query on any registered database.
 ```
 
-HTTP Decorators
+## HTTP Decorators
 
 ```python
 · @app.get(path), @app.post(path), @app.put(path), @app.delete(path), @app.patch(path), @app.route(path, methods)
@@ -339,7 +338,7 @@ HTTP Decorators
 · @app.static(prefix, directory) – Serve static files.
 ```
 
-WebSocket Decorators
+## WebSocket Decorators
 
 ```python
 · @app.on(event) – Handle JSON messages with an event field.
@@ -347,7 +346,7 @@ WebSocket Decorators
 · @app.on_internal(event) – Handle internal events (connect, disconnect, subscribe, unsubscribe, message).
 · @app.middleware – WebSocket middleware.
 
-Actions
+## Actions
 
 · await app.emit(event, data, client_id=None) – Send to one client or broadcast to all if client.id is not specify.
 
@@ -358,14 +357,14 @@ Actions
 · app.get_room_clients(room) -> Set[str]
 ```
 
-Background Tasks
+## Background Tasks
 
 ```python
 · @app.task – Runs once when server starts.
 · @app.schedule(interval) – Runs periodically (in seconds).
 ```
 
-Response Helpers
+## Response Helpers
 
 ```python
 · json_response(data, status=200)
@@ -374,7 +373,7 @@ Response Helpers
 · render_template(template_name, context=None, template_dir="templates") – Basic template rendering.
 ```
 
-Request Object
+## Request Object
 
 ```python
 · req.method, req.path, req.headers, req.body, req.client_ip
@@ -385,7 +384,7 @@ Request Object
 ```
 
 
-CLI Usage
+## CLI Usage
 
 Lynk includes a simple CLI to run applications directly:
 
@@ -397,7 +396,7 @@ The format is module:app, where app is the Lynk instance variable.
 
 ---
 
-CONTRIBUTING
+## CONTRIBUTING
 
 ```python
 1. Fork the repository.
@@ -409,11 +408,12 @@ CONTRIBUTING
 
 ---
 
-LICENSE
+## LICENSE
+
 ```python
 Distributed under the MIT License. See LICENSE for more information.
 
 ---
 
-Built by (Alex Austin).
+## Built by (Alex Austin).
 ```
