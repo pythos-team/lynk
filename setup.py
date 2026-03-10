@@ -9,7 +9,7 @@ if os.path.exists("README.md"):
 
 setup(
     name="lynkio",
-    version="1.1.2",  # Bump version to reflect optional‑only extras
+    version="1.1.3",  # Bump version to reflect optional‑only extras
     author="Alex Austin",
     author_email="benmap40@gmail.com",
     description=(
@@ -19,7 +19,7 @@ setup(
     ),
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/pythos-team/soketdb",
+    url="https://github.com/pythos-team/lynk",
     license="MIT",
     packages=find_packages(),
     
