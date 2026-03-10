@@ -1,50 +1,48 @@
 ```markdown
-# Lynk – Real‑time event engine with native HTTP routing
+Lynk – Real‑time event engine with native HTTP routing
 
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Lynk is a lightweight, pure‑Python framework for building real‑time web applications with native HTTP routing and event‑driven architecture. It runs on Python 3.7+ and has **no external dependencies** beyond the standard library (except optional integration with [soketDB](/soketdb) for logging).
 
 ---
 
-## ✨ Features
+## Features
 
-- 🚀 **Real‑time Event Engine** – Handle WebSocket connections, events, and notifications.
+- **Real‑time Event Engine** – Handle WebSocket connections, events, and notifications.
 
-- 🌐 **Native HTTP Routing** – Full support for GET, POST, PUT, DELETE, PATCH, OPTIONS.
+- **Native HTTP Routing** – Full support for GET, POST, PUT, DELETE, PATCH, OPTIONS.
 
-- 🔌 **Pub/Sub with Rooms** – Publish and subscribe to events across your application.
+- **Pub/Sub with Rooms** – Publish and subscribe to events across your application.
 
-- ⚡ **Async‑Ready** – Fully compatible with Python’s `asyncio`.
+- **Async‑Ready** – Fully compatible with Python’s `asyncio`.
 
-- 🧩 **Middleware Support** – Add custom middleware for WebSocket events and HTTP requests.
+- **Middleware Support** – Add custom middleware for WebSocket events and HTTP requests.
 
-- 📦 **Plugin System** – Extend Lynk with reusable modules.
+- **Plugin System** – Extend Lynk with reusable modules.
 
-- 🗄️ **Integrated Database Logging**
+- **Integrated Database Logging**
 
 –Automatically log HTTP, WebSocket, and runtime events to **soketDB** (optional).
 
-- 📊 **Distributed Query API** 
+- **Distributed Query API** 
 
 – Query any registered soketDB instance asynchronously.
 
-- 🛠️ **Background Tasks & Scheduler**
+- **Background Tasks & Scheduler**
 
 – Run periodic or one‑off background coroutines.
 
-- 🔒 **CORS Support** 
+- **CORS Support** 
 
 – Enable Cross‑Origin Resource Sharing with one line.
 
-- 🐍 **Pure Python** 
+- **Pure Python** 
 
 – No external dependencies (except soketDB for logging, which is optional).
 
 ---
 
-## 📦 Installation
+## Installation
 
 ```bash
 pip install lynkio
