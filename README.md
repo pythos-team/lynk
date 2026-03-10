@@ -1,5 +1,7 @@
 ```markdown
-Lynk – Real‑time event engine with native HTTP routing
+## Lynkio
+
+– Real‑time event engine with native HTTP routing
 
 
 Lynk is a lightweight, pure‑Python framework for building real‑time web applications with native HTTP routing and event‑driven architecture. It runs on Python 3.7+ and has **no external dependencies** beyond the standard library (except optional integration with [soketDB](/soketdb) for logging).
