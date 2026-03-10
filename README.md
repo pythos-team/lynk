@@ -46,7 +46,7 @@ Lynkio is a lightweight, pure‑Python framework for building real‑time web ap
 
 ## Installation
 
-```bash
+```python
 pip install lynkio
 ```
 
@@ -187,7 +187,7 @@ import os
 import time
 import asyncio
 import logging
-from lynk import Lynk, json_response, render_template
+from lynkio import Lynk, json_response, render_template
 
 app = Lynk(
     host="0.0.0.0",
