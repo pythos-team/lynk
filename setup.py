@@ -9,7 +9,7 @@ if os.path.exists("README.md"):
 
 setup(
     name="lynkio",
-    version="1.1.5",  # Bump version to reflect optional‑only extras
+    version="1.1.6",  # Bump version to reflect optional‑only extras
     author="Alex Austin",
     author_email="benmap40@gmail.com",
     description=(

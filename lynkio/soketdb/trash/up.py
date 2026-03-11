@@ -646,21 +646,6 @@ class HuggingFaceBackup:
         except Exception as e:
             print(f"⚠️ HuggingFace sync failed for {table}: {e}")
     
-    def get_table(self, project_name: str, table: str) -> Optional[List[Dict]]:
-        """Retrieve a specific table from HuggingFace"""
-        if not self.initialized:
-            return None
-        try:
-            file_path = hf_hub_download(
-                repo_id=self.repo_id,
-                filename=f"{project_name}/{table}.json",
-                repo_type="dataset"
-            )
-            with open(file_path, 'r') as f:
-                return json.load(f)
-        except Exception:
-            return None
-    
     def exists(self, project_name: str) -> bool:
         """Check if project exists in HuggingFace"""
         if not self.initialized:
@@ -727,29 +712,6 @@ class GoogleDriveBackup:
             self.service = build('drive', 'v3', credentials=creds)
         except Exception as e:
             print(f"⚠️ Google Drive authentication failed: {e}")
-    
-    def backup(self, project_name: str, local_path: str) -> str:
-        # Simplified backup - upload all files to a folder named project_name
-        if not self.service:
-            return "Google Drive not authenticated"
-        # ... (implementation similar to original)
-        return "Backup completed to Google Drive"
-    
-    def sync_table(self, project_name: str, table: str, data: Any):
-        # ... (implementation)
-        pass
-    
-    def get_table(self, project_name: str, table: str) -> Optional[List[Dict]]:
-        # ... (implementation)
-        return None
-    
-    def exists(self, project_name: str) -> bool:
-        # ... (implementation)
-        return False
-    
-    def restore(self, project_name: str, local_path: str) -> str:
-        # ... (implementation)
-        return "Restored from Google Drive"
 
 class AWSBackup:
     def __init__(self, config: Dict[str, Any]):
@@ -765,26 +727,6 @@ class AWSBackup:
                 self.bucket_name = config.get('aws_bucket_name')
             except Exception as e:
                 print(f"⚠️ AWS S3 initialization failed: {e}")
-    
-    def backup(self, project_name: str, local_path: str) -> str:
-        # ... (implementation)
-        return "Backup completed to AWS S3"
-    
-    def sync_table(self, project_name: str, table: str, data: Any):
-        # ... (implementation)
-        pass
-    
-    def get_table(self, project_name: str, table: str) -> Optional[List[Dict]]:
-        # ... (implementation)
-        return None
-    
-    def exists(self, project_name: str) -> bool:
-        # ... (implementation)
-        return False
-    
-    def restore(self, project_name: str, local_path: str) -> str:
-        # ... (implementation)
-        return "Restored from AWS S3"
 
 class DropboxBackup:
     def __init__(self, config: Dict[str, Any]):
@@ -795,26 +737,6 @@ class DropboxBackup:
                 self.dbx = dropbox.Dropbox(self.access_token) if self.access_token else None
             except Exception as e:
                 print(f"⚠️ Dropbox initialization failed: {e}")
-    
-    def backup(self, project_name: str, local_path: str) -> str:
-        # ... (implementation)
-        return "Backup completed to Dropbox"
-    
-    def sync_table(self, project_name: str, table: str, data: Any):
-        # ... (implementation)
-        pass
-    
-    def get_table(self, project_name: str, table: str) -> Optional[List[Dict]]:
-        # ... (implementation)
-        return None
-    
-    def exists(self, project_name: str) -> bool:
-        # ... (implementation)
-        return False
-    
-    def restore(self, project_name: str, local_path: str) -> str:
-        # ... (implementation)
-        return "Restored from Dropbox"
 
 class QueryOptimizer:
     """Optimize queries for better performance"""
@@ -927,503 +849,117 @@ class AdvancedAItoSQL:
         self.optimizer.cache_result(prompt, sql)
         
         return sql
-
+        
+        
 class database:
     """Fully enhanced database with production encryption, cloud sync, and environment integration"""
-    
-    def __init__(self, project_name: str, config: Dict[str, Any] = None, 
+
+    def __init__(self, project_name: str, config: Dict[str, Any] = None,
                  production: bool = False, encryption_key: str = None,
                  env_file: str = ENV_FILE):
         self.project_name = project_name
         self.config = config or self._load_config()
         self.production = production
-        
-        # Initialize environment manager
+
         self.env_manager = EnvironmentManager(env_file, production)
-        
-        # Initialize encryption manager
         self.encryption_manager = EncryptionManager(project_name, production)
-        
-        # Initialize encryption - check environment first
+
         if production:
             self.encryption_manager.initialize_encryption(encryption_key, self.env_manager)
-            
-            # Check if we need to migrate existing data
             if self._has_unencrypted_data() and not self._is_first_time_production():
                 print("🔄 Migrating existing data to encrypted format...")
                 if self.encryption_manager.migrate_to_encrypted(self, self.env_manager):
                     print("✅ Migration completed successfully!")
                 else:
                     print("❌ Migration failed!")
-        
+
         self.project_path = os.path.join(DATABASE, project_name)
-        
-        # Create project directory
         os.makedirs(self.project_path, exist_ok=True)
-        
-        # Initialize components
+
         self.ai_converter = AdvancedAItoSQL()
         self.backup_manager = BackupManager(self.config)
         self.query_optimizer = QueryOptimizer()
         self.cloud_sync = CloudSyncManager(self.config, project_name)
         self.lock = threading.RLock()
-        
-        # Transaction support
         self.in_transaction = False
-        self.temp_writes = {}  # table -> data
-        
-        # Cloud sync background thread
-        self.sync_thread = None
-        self.sync_stop_event = threading.Event()
-        
-        # Create system tables
+        self.temp_writes = {}
+
         self._create_system_tables()
-        
-        # Log production mode
+
         if self.production:
             self._log_security_event("PRODUCTION_MODE_ENABLED", "Database encryption activated")
-            
-        # Initial backup if enabled
+
         if self.config.get('backup_enabled', False):
             self._perform_initial_backup()
-        
-        # Start cloud sync if enabled
+
+        # ========== NEW: Cloud sync on startup ==========
+        self.sync_thread = None
+        self.sync_stop_event = threading.Event()
         if self.config.get('auto_sync', True):
-            self._sync_from_cloud()
-            self._start_background_sync()
-    
-    def _has_unencrypted_data(self) -> bool:
-        """Check if there's unencrypted data that needs migration"""
-        tables = self.list_tables()
-        user_tables = [t for t in tables if not t.startswith('system_')]
-        
-        if not user_tables:
-            return False
-        
-        # Check if any table is unencrypted
-        for table in user_tables[:2]:  # Sample first 2 tables
-            try:
-                data = self._read_table_unencrypted(table)
-                if data is not None:
-                    return True
-            except:
-                continue
-        
-        return False
-    
-    def _is_first_time_production(self) -> bool:
-        """Check if this is first time switching to production"""
-        system_tables = self._read_table('system_security') or []
-        production_events = [e for e in system_tables if e.get('event_type') == 'PRODUCTION_MODE_ENABLED']
-        return len(production_events) <= 1
-    
-    def _read_table_unencrypted(self, table: str) -> Optional[List[Dict]]:
-        """Read table data without decryption (for migration)"""
-        file_path = os.path.join(self.project_path, f"{table}{TABLE_EXT}")
-        
-        if not os.path.exists(file_path):
-            return None
-        
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-            
-            if not content:
-                return []
-            
-            # Try to parse as regular JSON (unencrypted)
-            return json.loads(content)
-                
-        except (json.JSONDecodeError, ValueError, IOError):
-            return None
+            self._sync_from_cloud()               # initial pull
+            self._start_background_sync()         # periodic sync
 
-    def _load_config(self) -> Dict[str, Any]:
-        """Load configuration from file with environment variable support"""
-        default_config = {
-            'primary_storage': 'local',
-            'backup_enabled': True,
-            'auto_backup_hours': 24,
-            'query_cache_enabled': True,
-            'auto_sync': True,
-            'google_drive_enabled': False,
-            'huggingface_enabled': False,
-            'aws_s3_enabled': False,
-            'dropbox_enabled': False
-        }
-        
-        if os.path.exists(CONFIG_FILE):
-            with open(CONFIG_FILE, 'r') as f:
-                loaded_config = json.load(f)
-                default_config.update(loaded_config)
-        
-        # Override with environment variables
-        env = EnvironmentManager()
-        for key in default_config.keys():
-            env_key = f"SOKETDB_{key.upper()}"
-            if env_key in env.env_vars:
-                env_value = env.get(env_key)
-                # Convert string to appropriate type
-                if isinstance(default_config[key], bool):
-                    default_config[key] = env_value.lower() in ['true', 'yes', '1', 'y']
-                elif isinstance(default_config[key], int):
-                    default_config[key] = int(env_value)
-                else:
-                    default_config[key] = env_value
-        
-        return default_config
-
-    def transaction(self):
-        """Context manager for batched transactions (benefits prod/local: atomicity via temp files)"""
-        return self._TransactionContext(self)
-    
-    class _TransactionContext:
-        def __init__(self, db):
-            self.db = db
-        
-        def __enter__(self):
-            self.db.in_transaction = True
-            self.db.temp_writes = {}
-            return self.db
-        
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            if exc_type is None:
-                # Commit: Write temp to files
-                for table, data in self.db.temp_writes.items():
-                    self.db._write_table(table, data, "TRANSACTION_COMMIT")
-                self.db._log_security_event("TRANSACTION_COMMIT", f"Committed {len(self.db.temp_writes)} tables")
-            else:
-                # Rollback: Discard temp
-                self.db._log_security_event("TRANSACTION_ROLLBACK", f"Rolled back due to {exc_type.__name__}: {exc_val}")
-            self.db.in_transaction = False
-            self.db.temp_writes = {}
-    
-    def generate_config(self, output_file: str = CONFIG_FILE, interactive: bool = True):
-        """Generate configuration file interactively or with defaults"""
-        config = self._load_config()  # Start with defaults
-        
-        if interactive:
-            print("🔧 Interactive Config Generator")
-            print("Leave blank for defaults.")
-            
-            config['primary_storage'] = input(f"Primary storage ({config['primary_storage']}): ").strip() or config['primary_storage']
-            
-            if config['primary_storage'] == 'huggingface':
-                config['huggingface_token'] = input("HuggingFace token: ").strip()
-                config['huggingface_repo_id'] = input("HuggingFace repo ID: ").strip()
-                config['huggingface_enabled'] = True
-            elif config['primary_storage'] == 'google_drive':
-                config['google_drive_enabled'] = True
-            elif config['primary_storage'] == 'aws_s3':
-                config['aws_s3_enabled'] = True
-                config['aws_access_key'] = input("AWS Access Key: ").strip()
-                config['aws_secret_key'] = input("AWS Secret Key: ").strip()
-                config['aws_bucket_name'] = input("S3 Bucket: ").strip()
-                config['aws_region'] = input("AWS Region (us-east-1): ").strip() or 'us-east-1'
-            elif config['primary_storage'] == 'dropbox':
-                config['dropbox_enabled'] = True
-                config['dropbox_access_token'] = input("Dropbox Access Token: ").strip()
-            
-            config['auto_sync'] = input(f"Enable auto-sync ({config['auto_sync']}): ").lower() in ['y', 'yes', 'true']
-            config['backup_enabled'] = input(f"Enable backups ({config['backup_enabled']}): ").lower() in ['y', 'yes', 'true']
-        
-        # Write config
-        with open(output_file, 'w') as f:
-            json.dump(config, f, indent=2)
-        
-        print(f"✅ Config generated: {output_file}")
-        return config
-    
-    def _perform_initial_backup(self):
-        """Perform initial backup if this is a new database"""
+    # ----------------------------------------------------------------------
+    # NEW: Cloud sync methods
+    # ----------------------------------------------------------------------
+    def _sync_from_cloud(self):
+        """Pull latest versions of all tables from primary cloud storage."""
+        if not self.cloud_sync.providers:
+            return
+        provider = next(iter(self.cloud_sync.providers.values()))
         try:
             tables = self.list_tables()
-            if len(tables) <= 4:  # Only system tables
-                print("🔄 Performing initial backup...")
-                backup_results = self.backup()
-                for provider, result in backup_results.items():
-                    print(f"  {provider}: {result}")
+            for table in tables:
+                if table.startswith('system_'):
+                    continue
+                # Download table data from cloud (assume provider has get_table method)
+                cloud_data = provider.get_table(self.project_name, table)
+                if cloud_data is not None:
+                    local_data = self._read_table(table)
+                    # Compare version/hash – simplified: always overwrite if cloud exists
+                    # In a real implementation you'd compare timestamps/versions
+                    if cloud_data != local_data:
+                        self._write_table(table, cloud_data, "SYNC_PULL")
+            self._log_security_event("CLOUD_SYNC", "Initial sync from cloud completed")
         except Exception as e:
-            print(f"⚠️ Initial backup failed: {e}")
-    
-    def _create_system_tables(self):
-        """Create system tables for metadata"""
-        system_tables = {
-            'system_queries': ['query_id', 'query_text', 'execution_time', 'timestamp'],
-            'system_tables': ['table_name', 'column_count', 'row_count', 'created_at', 'encrypted'],
-            'system_backups': ['backup_id', 'provider', 'timestamp', 'size', 'encrypted'],
-            'system_security': ['event_id', 'event_type', 'description', 'timestamp', 'project']
-        }
-        
-        for table, columns in system_tables.items():
-            if not self._table_exists(table):
-                self.execute(f"CREATE TABLE {table} ({', '.join(columns)})")
-        
-        # Update system tables with encryption info
-        self._update_system_tables()
-    
-    def _log_security_event(self, event_type: str, description: str):
-        """Log security-related events"""
-        security_log = {
-            'event_id': hashlib.md5(f"{event_type}{time.time()}".encode()).hexdigest()[:8],
-            'event_type': event_type,
-            'description': description,
-            'timestamp': datetime.now().isoformat(),
-            'project': self.project_name,
-            'production_mode': self.production
-        }
-        
-        # Append to system security log
-        security_logs = self._read_table('system_security') or []
-        security_logs.append(security_log)
-        self._write_table('system_security', security_logs)
-    
-    def _table_exists(self, table: str) -> bool:
-        """Check if table exists"""
-        return os.path.exists(os.path.join(self.project_path, f"{table}{TABLE_EXT}"))
-    
-    def _read_table(self, table: str) -> Optional[List[Dict]]:
-        """Read table data with encryption support and error handling"""
-        file_path = os.path.join(self.project_path, f"{table}{TABLE_EXT}")
-        
-        if not os.path.exists(file_path):
-            return None
-        
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                encrypted_content = f.read().strip()
-            
-            if not encrypted_content:
-                return []  # Handle empty file
-            
-            # Decrypt if in production mode
-            if self.production and encrypted_content:
-                decrypted_data = self.encryption_manager.decrypt_data(encrypted_content)
-                if decrypted_data is None:
-                    raise ValueError(f"Failed to decrypt table {table}")
-                return decrypted_data
-            else:
-                # Try to parse as regular JSON
-                return json.loads(encrypted_content)
-                
-        except (json.JSONDecodeError, ValueError, IOError) as e:
-            print(f"Error reading table {table}: {e}")
-            self._log_security_event("READ_ERROR", f"Table read failed: {e}")
-            return None
-    
-    def _write_table(self, table: str, data: List[Dict], operation: str = "WRITE"):
-        """Write table data with encryption support, cloud sync, and error handling"""
-        file_path = os.path.join(self.project_path, f"{table}{TABLE_EXT}")
-        
-        try:
-            # Encrypt if in production mode
-            if self.production:
-                encrypted_content = self.encryption_manager.encrypt_data(data)
-            else:
-                encrypted_content = json.dumps(data, indent=2, ensure_ascii=False)
-            
-            # Atomic write using temp file
-            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, dir=self.project_path) as temp_f:
-                temp_f.write(encrypted_content)
-                temp_path = temp_f.name
-            
-            os.replace(temp_path, file_path)  # Atomic replace
-            
-        except (IOError, OSError) as e:
-            print(f"Error writing table {table}: {e}")
-            self._log_security_event("WRITE_ERROR", f"Table write failed: {e}")
-            raise  # Re-raise to fail transaction if in one
-        
-        # Sync to cloud if enabled and not in transaction (commit handles sync)
-        if not self.in_transaction:
-            self.cloud_sync.sync_table(table, data, operation)
-    
-    def _write_metadata(self, table: str, metadata: Dict):
-        """Write table metadata with encryption and error handling"""
-        meta_path = os.path.join(self.project_path, f"{table}{TABLE_EXT}.meta")
-        
-        try:
-            if self.production:
-                encrypted_content = self.encryption_manager.encrypt_data(metadata)
-            else:
-                encrypted_content = json.dumps(metadata, indent=2)
-            
-            # Atomic write
-            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, dir=self.project_path) as temp_f:
-                temp_f.write(encrypted_content)
-                temp_path = temp_f.name
-            
-            os.replace(temp_path, meta_path)
-            
-        except (IOError, OSError) as e:
-            print(f"Error writing metadata for {table}: {e}")
-            raise
-    
-    def _read_metadata(self, table: str) -> Optional[Dict]:
-        """Read table metadata with decryption and error handling"""
-        meta_path = os.path.join(self.project_path, f"{table}{TABLE_EXT}.meta")
-        if not os.path.exists(meta_path):
-            return None
-        
-        try:
-            with open(meta_path, 'r') as f:
-                encrypted_content = f.read().strip()
-            
-            if not encrypted_content:
-                return {}
-            
-            if self.production and encrypted_content:
-                return self.encryption_manager.decrypt_data(encrypted_content) or {}
-            else:
-                return json.loads(encrypted_content)
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"Error reading metadata for {table}: {e}")
-            return None
-    
-    def validate_schema(self, table: str, columns: List[str]) -> bool:
-        """Validate schema columns: no duplicates, valid names"""
-        if not columns:
-            return False
-        if len(columns) != len(set(columns)):
-            print(f"❌ Duplicate columns in {table}")
-            return False
-        for col in columns:
-            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', col):
-                print(f"❌ Invalid column name '{col}' in {table}")
-                return False
-        return True
-    
-    def validate_insert_data(self, table: str, data: List[Dict]) -> Tuple[bool, str]:
-        """Validate insert data against schema"""
-        metadata = self._read_metadata(table)
-        if not metadata or not metadata.get('columns'):
-            return True, "No schema; insert allowed"
-        
-        expected_columns = metadata['columns']
-        for row in data:
-            if set(row.keys()) != set(expected_columns):
-                missing = set(expected_columns) - set(row.keys())
-                extra = set(row.keys()) - set(expected_columns)
-                return False, f"Schema mismatch in {table}: missing {missing}, extra {extra}"
-            # Basic type inference (e.g., age int)
-            for col, val in row.items():
-                if col == 'age' and not isinstance(val, int):
-                    return False, f"Type mismatch: age must be int in {table}"
-        return True, "Valid"
-    
-    def inspect_system_table(self, table_name: str = 'system_tables') -> Optional[List[Dict]]:
-        """Inspect and return data from a system table"""
-        if not table_name.startswith('system_'):
-            return None
-        
-        data = self._read_table(table_name)
-        if data:
-            print(f"📊 System Table '{table_name}' Data:")
-            for row in data:
-                print(f"  - {json.dumps(row, indent=2)}")
-        return data
-    
-    def _bind_params(self, query: str, params: Tuple) -> str:
-        """Safely bind parameters to ? placeholders in the query to prevent injection."""
-        if not params:
-            return query
-        
-        param_idx = 0
-        
-        def replacer(match):
-            nonlocal param_idx
-            if param_idx >= len(params):
-                raise ValueError("More placeholders (?) than parameters provided")
-            val = params[param_idx]
-            param_idx += 1
-            if isinstance(val, str):
-                # Escape single quotes for SQL-like safety
-                escaped_val = val.replace("'", "''")
-                return f"'{escaped_val}'"
-            else:
-                # For numbers, etc., just str
-                return str(val)
-        
-        # Replace ? only in value positions (simple regex for non-word chars around ?)
-        new_query = re.sub(r'\?', replacer, query)
-        
-        if param_idx < len(params):
-            raise ValueError("More parameters provided than placeholders (?)")
-        
-        return new_query
-    
+            self._log_security_event("CLOUD_SYNC_ERROR", str(e))
+
+    def _start_background_sync(self):
+        """Start a background thread that periodically syncs from cloud."""
+        def sync_worker():
+            while not self.sync_stop_event.wait(timeout=60):  # every 60 seconds
+                try:
+                    self._sync_from_cloud()
+                except Exception:
+                    pass
+        self.sync_thread = threading.Thread(target=sync_worker, daemon=True)
+        self.sync_thread.start()
+
+    # ----------------------------------------------------------------------
+    # Modified execution methods
+    # ----------------------------------------------------------------------
     def execute(self, query: str, params: Optional[Tuple] = None) -> Any:
-        """Execute SQL query with enhanced features and optional parameterized support."""
-        
-        # Check cache (key based on query only, ignore params for simplicity)
+        """Execute SQL query with optional PostgreSQL-style parameters ($1, $2)."""
         if self.config.get('query_cache_enabled', True):
             cached_result = self.query_optimizer.get_cached_result(query)
             if cached_result is not None:
                 return cached_result
-        
+
         with self.lock:
             try:
-                # Parse and validate query
-                parsed_query = self._parse_query(query)
-                
-                # Execute query with parameters
-                result = self._execute_parsed_query(parsed_query, params)
-                
-                # Cache result
-                if self.config.get('query_cache_enabled', True):
-                    self.query_optimizer.cache_result(query, result)
-                
-                # Log query
+                parsed = self._parse_query(query)
+                result = self._execute_parsed_query(parsed, params)
+                self.query_optimizer.cache_result(query, result)
                 self._log_query(query, "success")
-                
                 return result
-                
             except Exception as e:
                 self._log_query(query, f"error: {str(e)}")
                 return f"❌ Query execution failed: {str(e)}"
-    
-    def query(self, natural_language: str) -> Any:
-        """Execute natural language query"""
-        try:
-            # Convert natural language to SQL
-            sql = self.ai_converter.convert(natural_language)
-            print(f"🤖 AI Translated: {sql}")
-            
-            # Execute the SQL
-            return self.execute(sql)
-            
-        except Exception as e:
-            return f"❌ AI translation failed: {e}"
-    
-    def _parse_query(self, query: str) -> Dict[str, Any]:
-        """Parse SQL query into structured format"""
-        # Remove extra whitespace
-        query = re.sub(r'\s+', ' ', query.strip())
-        
-        # Basic query type detection
-        query_upper = query.upper()
-        
-        if query_upper.startswith('SELECT'):
-            return {'type': 'SELECT', 'query': query}
-        elif query_upper.startswith('INSERT'):
-            return {'type': 'INSERT', 'query': query}
-        elif query_upper.startswith('UPDATE'):
-            return {'type': 'UPDATE', 'query': query}
-        elif query_upper.startswith('DELETE'):
-            return {'type': 'DELETE', 'query': query}
-        elif query_upper.startswith('CREATE'):
-            return {'type': 'CREATE', 'query': query}
-        elif query_upper.startswith('DROP'):
-            return {'type': 'DROP', 'query': query}
-        elif query_upper.startswith('ALTER'):
-            return {'type': 'ALTER', 'query': query}
-        else:
-            return {'type': 'UNKNOWN', 'query': query}
-    
+
     def _execute_parsed_query(self, parsed_query: Dict[str, Any], params: Optional[Tuple]) -> Any:
-        """Execute parsed query with parameters"""
         query_type = parsed_query['type']
         query = parsed_query['query']
-        
+
         if query_type == 'SELECT':
             return self._execute_select(query, params)
         elif query_type == 'INSERT':
@@ -1440,79 +976,95 @@ class database:
             return self._execute_alter(query)
         else:
             return "❌ Unsupported query type"
-    
-    def _sanitize_identifier(self, ident: str) -> str:
-        """Sanitize table or column name to prevent injection"""
-        # Allow only alphanumeric, underscore, starting with letter or underscore
-        sanitized = re.sub(r'[^a-zA-Z0-9_]', '', ident)
-        if not re.match(r'^[a-zA-Z_]', sanitized):
-            raise ValueError(f"Invalid identifier: {ident}")
-        return sanitized
-    
-    def _sanitize_column_list(self, columns_str: str) -> List[str]:
-        """Sanitize and parse column list to prevent injection"""
-        # Split by comma, strip, and sanitize each
-        columns = [self._sanitize_identifier(col.strip()) for col in columns_str.split(',') if col.strip()]
-        # Remove duplicates
-        return list(dict.fromkeys(columns))
-    
-    def _perform_in_memory_join(self, left_table: str, right_table: str, on_condition: str) -> List[Dict]:
-        """Perform simple INNER JOIN on two tables based on ON condition (e.g., left.id = right.user_id)"""
-        left_data = self._read_table(left_table) or []
-        right_data = self._read_table(right_table) or []
-        
-        if not left_data or not right_data:
-            return []
-        
-        # Parse ON: Assume form left_col = right_col
-        on_match = re.match(r'(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)', on_condition)
-        if not on_match:
-            raise ValueError("Invalid ON condition for JOIN")
-        
-        _, left_col, _, right_col = on_match.groups()
-        left_col = self._sanitize_identifier(left_col)
-        right_col = self._sanitize_identifier(right_col)
-        
-        # Create right index for fast lookup
-        right_index = {row.get(right_col): row for row in right_data}
-        
-        joined_data = []
-        for left_row in left_data:
-            right_key = left_row.get(left_col)
-            if right_key in right_index:
-                joined_row = {**left_row, **right_index[right_key]}
-                # Remove duplicate keys if any (keep left)
-                if left_col in joined_row and right_col in joined_row and left_col == right_col:
-                    del joined_row[right_col]
-                joined_data.append(joined_row)
-        
-        return joined_data
-    
-    def _execute_select(self, query: str, params: Optional[Tuple]) -> Any:
-        """Execute SELECT query with parameterised WHERE clause"""
-        # First check for JOIN
-        join_match = re.match(r"SELECT\s+(.+?)\s+FROM\s+(\w+)\s+JOIN\s+(\w+)\s+ON\s+(.+?)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+(.+?))?(?:\s+GROUP\s+BY\s+(.+?))?(?:\s+LIMIT\s+(\d+))?$", query, re.IGNORECASE | re.DOTALL)
-        if join_match:
-            columns_str, left_table_raw, right_table_raw, on_raw, where_raw, order_raw, group_raw, limit_raw = join_match.groups()
-            left_table = self._sanitize_identifier(left_table_raw)
-            right_table = self._sanitize_identifier(right_table_raw)
-            on_condition = on_raw.strip()
-            
-            try:
-                data = self._perform_in_memory_join(left_table, right_table, on_condition)
-            except Exception as e:
-                return f"❌ JOIN failed: {e}"
+
+    # ----------------------------------------------------------------------
+    # INSERT with parameters and multiple rows
+    # ----------------------------------------------------------------------
+    def _execute_insert(self, query: str, params: Optional[Tuple]) -> str:
+        """
+        INSERT INTO table (col1, col2) VALUES ($1, $2), ($3, $4)
+        Parameters are consumed sequentially.
+        """
+        pattern = r"INSERT INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*(.+)$"
+        match = re.match(pattern, query, re.IGNORECASE | re.DOTALL)
+        if not match:
+            return "❌ Invalid INSERT syntax. Use: INSERT INTO table (col1, col2) VALUES ($1, $2), ($3, $4)"
+
+        table_raw, columns_raw, values_part = match.groups()
+        table = self._sanitize_identifier(table_raw)
+        columns = [self._sanitize_identifier(c.strip()) for c in columns_raw.split(',') if c.strip()]
+
+        # Find all parenthesised groups: e.g. ($1, $2) and ($3, $4)
+        groups = re.findall(r'\(([^)]+)\)', values_part)
+        if not groups:
+            return "❌ No value groups found."
+
+        # Count total placeholders needed
+        total_placeholders = sum(len([p for p in group.split(',') if p.strip()]) for group in groups)
+        if not params or len(params) != total_placeholders:
+            return f"❌ Parameter count mismatch. Expected {total_placeholders}, got {len(params) if params else 0}."
+
+        rows_to_insert = []
+        param_idx = 0
+        for group in groups:
+            placeholders = [p.strip() for p in group.split(',') if p.strip()]
+            row = {}
+            for i, col in enumerate(columns):
+                # The placeholder itself is not used; we consume params in order
+                row[col] = params[param_idx]
+                param_idx += 1
+            rows_to_insert.append(row)
+
+        # Rest of insertion logic (schema validation, duplicate detection)
+        existing_data = self._read_table(table) or []
+        valid, msg = self.validate_insert_data(table, rows_to_insert)
+        if not valid:
+            return f"❌ {msg}"
+
+        table_columns = list(existing_data[0].keys()) if existing_data else columns
+        existing_hashes = {self._row_hash(row, table_columns) for row in existing_data}
+
+        inserted_count = 0
+        duplicates = []
+        for row in rows_to_insert:
+            # Ensure row has all columns
+            for col in table_columns:
+                row.setdefault(col, None)
+            if self._row_hash(row, table_columns) in existing_hashes:
+                duplicates.append(row)
+            else:
+                existing_data.append(row)
+                existing_hashes.add(self._row_hash(row, table_columns))
+                inserted_count += 1
+
+        if self.in_transaction:
+            self.temp_writes[table] = existing_data
         else:
-            # Standard SELECT without JOIN
-            match = re.match(r"SELECT\s+(.+?)\s+FROM\s+(\w+)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+(.+?))?(?:\s+GROUP\s+BY\s+(.+?))?(?:\s+LIMIT\s+(\d+))?$", query, re.IGNORECASE | re.DOTALL)
-            if not match:
-                return "❌ Invalid SELECT query format"
-            
-            columns_str, table_raw, where_raw, order_raw, group_raw, limit_raw = match.groups()
-            table = self._sanitize_identifier(table_raw)
-            data = self._read_table(table)
-            if data is None:
-                return f"❌ Table '{table}' not found"
+            self._write_table(table, existing_data, "INSERT")
+
+        msg = f"✅ {inserted_count} row(s) inserted into '{table}'"
+        if duplicates:
+            msg += f"\n⚠️ Skipped {len(duplicates)} duplicate(s)."
+        return msg
+
+    def _row_hash(self, row: Dict, columns: List[str]) -> tuple:
+        return tuple(sorted((col, row.get(col)) for col in columns))
+
+    # ----------------------------------------------------------------------
+    # SELECT with parameterised WHERE
+    # ----------------------------------------------------------------------
+    def _execute_select(self, query: str, params: Optional[Tuple]) -> Any:
+        pattern = r"SELECT\s+(.+?)\s+FROM\s+(\w+)(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+(.+?))?(?:\s+GROUP\s+BY\s+(.+?))?(?:\s+LIMIT\s+(\d+))?$"
+        match = re.match(pattern, query, re.IGNORECASE | re.DOTALL)
+        if not match:
+            return "❌ Invalid SELECT query"
+
+        columns_str, table_raw, where_raw, order_raw, group_raw, limit_raw = match.groups()
+        table = self._sanitize_identifier(table_raw)
+
+        data = self._read_table(table)
+        if data is None:
+            return f"❌ Table '{table}' not found"
 
         # Parse columns
         if columns_str.strip().lower() == '*':
@@ -1602,115 +1154,180 @@ class database:
                 pass
 
         return data
-    
-    def _execute_insert(self, query: str, params: Optional[Tuple]) -> str:
-        """
-        INSERT INTO table (col1, col2) VALUES ($1, $2), ($3, $4)
-        Parameters are consumed sequentially.
-        """
-        pattern = r"INSERT INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*(.+)$"
-        match = re.match(pattern, query, re.IGNORECASE | re.DOTALL)
+
+    # ----------------------------------------------------------------------
+    # UPDATE with parameters
+    # ----------------------------------------------------------------------
+    def _execute_update(self, query: str, params: Optional[Tuple]) -> str:
+        """UPDATE table SET col1 = $1, col2 = $2 WHERE col3 = $3"""
+        pattern = r"UPDATE\s+(\w+)\s+SET\s+(.+?)(?:\s+WHERE\s+(.+))?$"
+        match = re.match(pattern, query, re.IGNORECASE)
         if not match:
-            return "❌ Invalid INSERT syntax. Use: INSERT INTO table (col1, col2) VALUES ($1, $2), ($3, $4)"
+            return "❌ Invalid UPDATE query"
 
-        table_raw, columns_raw, values_part = match.groups()
+        table_raw, set_clauses_raw, where_clause = match.groups()
         table = self._sanitize_identifier(table_raw)
-        columns = [self._sanitize_identifier(c.strip()) for c in columns_raw.split(',') if c.strip()]
 
-        # Find all parenthesised groups: e.g. ($1, $2) and ($3, $4)
-        groups = re.findall(r'\(([^)]+)\)', values_part)
-        if not groups:
-            return "❌ No value groups found."
-
-        # Count total placeholders needed
-        total_placeholders = sum(len([p for p in group.split(',') if p.strip()]) for group in groups)
-        if not params or len(params) != total_placeholders:
-            return f"❌ Parameter count mismatch. Expected {total_placeholders}, got {len(params) if params else 0}."
-
-        rows_to_insert = []
+        # Parse SET clauses (comma separated, each with $n)
+        set_clauses = [s.strip() for s in set_clauses_raw.split(',') if s.strip()]
+        updates = {}
         param_idx = 0
-        for group in groups:
-            placeholders = [p.strip() for p in group.split(',') if p.strip()]
-            row = {}
-            for i, col in enumerate(columns):
-                # The placeholder itself is not used; we consume params in order
-                row[col] = params[param_idx]
-                param_idx += 1
-            rows_to_insert.append(row)
+        for clause in set_clauses:
+            set_match = re.match(r'(\w+)\s*=\s*\$(\d+)', clause)
+            if not set_match:
+                return f"❌ Invalid SET clause: {clause} (must use $n)"
+            col, placeholder_num = set_match.groups()
+            col = self._sanitize_identifier(col)
+            placeholder_idx = int(placeholder_num) - 1
+            if placeholder_idx >= len(params):
+                return "❌ Not enough parameters for SET"
+            updates[col] = params[placeholder_idx]
+            param_idx += 1
 
-        # Schema validation
-        existing_data = self._read_table(table) or []
-        valid, msg = self.validate_insert_data(table, rows_to_insert)
-        if not valid:
-            return f"❌ {msg}"
+        data = self._read_table(table)
+        if data is None:
+            return f"❌ Table '{table}' not found"
 
-        table_columns = list(existing_data[0].keys()) if existing_data else columns
-        existing_hashes = {self._row_hash(row, table_columns) for row in existing_data}
+        # Parse WHERE condition (simple with one $n)
+        filter_func = lambda row: True
+        if where_clause:
+            where_match = re.match(r'(\w+)\s*([=<>]+)\s*\$(\d+)', where_clause.strip())
+            if not where_match:
+                return "❌ Invalid WHERE condition (must use $n)"
+            key, op, placeholder_num = where_match.groups()
+            key = self._sanitize_identifier(key)
+            placeholder_idx = int(placeholder_num) - 1
+            if placeholder_idx >= len(params):
+                return "❌ Not enough parameters for WHERE"
+            param_value = params[placeholder_idx]
+            try:
+                if op == '=':
+                    filter_func = lambda row: str(row.get(key)) == str(param_value)
+                elif op == '>':
+                    filter_func = lambda row: float(row.get(key, 0)) > float(param_value)
+                elif op == '<':
+                    filter_func = lambda row: float(row.get(key, 0)) < float(param_value)
+                else:
+                    return "❌ Unsupported operator in WHERE"
+            except ValueError:
+                return "❌ Type mismatch in WHERE condition"
 
-        inserted_count = 0
-        duplicates = []
-        for row in rows_to_insert:
-            # Ensure row has all columns
-            for col in table_columns:
-                row.setdefault(col, None)
-            if self._row_hash(row, table_columns) in existing_hashes:
-                duplicates.append(row)
+        # Apply updates
+        updated_count = 0
+        for row in data:
+            if filter_func(row):
+                for col, val in updates.items():
+                    row[col] = val
+                updated_count += 1
+
+        if updated_count > 0:
+            if self.in_transaction:
+                self.temp_writes[table] = data
             else:
-                existing_data.append(row)
-                existing_hashes.add(self._row_hash(row, table_columns))
-                inserted_count += 1
+                self._write_table(table, data, "UPDATE")
+            return f"✅ {updated_count} row(s) updated in '{table}'"
+        else:
+            return "⚠️ No rows matched the condition"
+
+    # ----------------------------------------------------------------------
+    # DELETE with parameters
+    # ----------------------------------------------------------------------
+    def _execute_delete(self, query: str, params: Optional[Tuple]) -> str:
+        """DELETE FROM table WHERE col = $1"""
+        pattern = r"DELETE FROM\s+(\w+)(?:\s+WHERE\s+(.+))?$"
+        match = re.match(pattern, query, re.IGNORECASE)
+        if not match:
+            return "❌ Invalid DELETE query"
+
+        table_raw, where_clause = match.groups()
+        table = self._sanitize_identifier(table_raw)
+
+        data = self._read_table(table)
+        if data is None:
+            return f"❌ Table '{table}' not found"
+
+        if not where_clause:
+            # Delete all rows
+            count = len(data)
+            if self.in_transaction:
+                self.temp_writes[table] = []
+            else:
+                self._write_table(table, [], "DELETE")
+            return f"🗑️ {count} row(s) deleted from '{table}'"
+
+        # Parse WHERE condition with parameter
+        where_match = re.match(r'(\w+)\s*([=<>]+)\s*\$(\d+)', where_clause.strip())
+        if not where_match:
+            return "❌ Invalid WHERE condition (must use $n)"
+        key, op, placeholder_num = where_match.groups()
+        key = self._sanitize_identifier(key)
+        placeholder_idx = int(placeholder_num) - 1
+        if placeholder_idx >= len(params):
+            return "❌ Not enough parameters for WHERE"
+        param_value = params[placeholder_idx]
+
+        new_data = []
+        deleted_count = 0
+        for row in data:
+            row_val = row.get(key)
+            try:
+                if op == '=':
+                    match_cond = (str(row_val) == str(param_value))
+                elif op == '>':
+                    match_cond = (float(row_val) > float(param_value))
+                elif op == '<':
+                    match_cond = (float(row_val) < float(param_value))
+                else:
+                    match_cond = False
+            except (ValueError, TypeError):
+                match_cond = False
+
+            if match_cond:
+                deleted_count += 1
+            else:
+                new_data.append(row)
 
         if self.in_transaction:
-            self.temp_writes[table] = existing_data
+            self.temp_writes[table] = new_data
         else:
-            self._write_table(table, existing_data, "INSERT")
+            self._write_table(table, new_data, "DELETE")
+        return f"🗑️ {deleted_count} row(s) deleted from '{table}'"
 
-        msg = f"✅ {inserted_count} row(s) inserted into '{table}'"
-        if duplicates:
-            msg += f"\n⚠️ Skipped {len(duplicates)} duplicate(s)."
-        return msg
-
-    def _row_hash(self, row: Dict, columns: List[str]) -> tuple:
-        return tuple(sorted((col, row.get(col)) for col in columns))
-    
+    # ----------------------------------------------------------------------
+    # CREATE TABLE with IF NOT EXISTS
+    # ----------------------------------------------------------------------
     def _execute_create(self, query: str) -> str:
-        """Execute CREATE TABLE query with IF NOT EXISTS support"""
+        """CREATE TABLE IF NOT EXISTS table (col1, col2, ...)"""
         pattern = r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\((.+)\)"
         match = re.match(pattern, query, re.IGNORECASE)
         if not match:
             return "❌ Invalid CREATE TABLE query"
-        
+
         table_raw = match.group(1)
         columns_str = match.group(2)
         table = self._sanitize_identifier(table_raw)
         columns = [self._sanitize_identifier(col.strip().split()[0]) for col in columns_str.split(",") if col.strip()]
-        
-        # Schema validation
+
         if not self.validate_schema(table, columns):
             return f"❌ Schema validation failed for {table}"
-        
+
         if self._table_exists(table):
             # Check if IF NOT EXISTS was used
             if "IF NOT EXISTS" in query.upper():
                 return f"ℹ️ Table '{table}' already exists, skipping"
             else:
                 return f"❌ Table '{table}' already exists"
-        
+
         self._write_table(table, [], "CREATE")
-        
-        # Store metadata
         metadata = {"columns": columns, "created_at": datetime.now().isoformat()}
         self._write_metadata(table, metadata)
-        
-        # Update system tables
         self._update_system_tables()
-        
-        # Auto-backup if enabled
+
         if self.config.get('backup_enabled', False):
             self.backup()
-        
+
         return f"✅ Table '{table}' created with columns: {columns}"
-    
+
     def _execute_alter(self, query: str) -> str:
         """Execute ALTER TABLE query (support ADD/DROP multiple columns via comma-separated list) with enhanced error handling"""
         table_raw = None
@@ -1798,60 +1415,64 @@ class database:
         
         return f"✅ {altered_count} column(s) {action.lower()}ed from table '{table}'"
     
-    def _execute_update(self, query: str, params: Optional[Tuple]) -> str:
-        """UPDATE table SET col1 = $1, col2 = $2 WHERE col3 = $3"""
-        pattern = r"UPDATE\s+(\w+)\s+SET\s+(.+?)(?:\s+WHERE\s+(.+))?$"
-        match = re.match(pattern, query, re.IGNORECASE)
+    def _execute_update(self, query: str) -> str:
+        """Execute UPDATE query with multi-column SET support and basic type validation"""
+        # Enhanced: Support SET col1=val1, col2=val2
+        match = re.match(r"UPDATE\s+(\w+)\s+SET\s+(.+?)(?:\s+WHERE\s+(.+))?$", query, re.IGNORECASE)
         if not match:
             return "❌ Invalid UPDATE query"
-
+        
         table_raw, set_clauses_raw, where_clause = match.groups()
         table = self._sanitize_identifier(table_raw)
-
-        # Parse SET clauses (comma separated, each with $n)
+        
+        # Parse multiple SET: col1=val1, col2=val2
         set_clauses = [s.strip() for s in set_clauses_raw.split(',') if s.strip()]
         updates = {}
-        param_idx = 0
+        metadata = self._read_metadata(table)
         for clause in set_clauses:
-            set_match = re.match(r'(\w+)\s*=\s*\$(\d+)', clause)
-            if not set_match:
-                return f"❌ Invalid SET clause: {clause} (must use $n)"
-            col, placeholder_num = set_match.groups()
-            col = self._sanitize_identifier(col)
-            placeholder_idx = int(placeholder_num) - 1
-            if placeholder_idx >= len(params):
-                return "❌ Not enough parameters for SET"
-            updates[col] = params[placeholder_idx]
-            param_idx += 1
-
+            set_match = re.match(r'(\w+)\s*=\s*(.+)', clause)
+            if set_match:
+                col_raw, val_raw = set_match.groups()
+                col = self._sanitize_identifier(col_raw)
+                val = re.sub(r"^['\"]|['\"]$", '', val_raw.strip())  # Strip quotes
+                # Basic type validation (edge case handling)
+                try:
+                    if col in metadata.get('columns', []):  # Schema check per col
+                        # Attempt type coercion (e.g., int for age)
+                        if col == 'age':
+                            val = int(val)
+                        updates[col] = val
+                    else:
+                        return f"❌ Column '{col}' not in schema for {table}"
+                except ValueError:
+                    return f"❌ Invalid value for '{col}': {val_raw}"
+            else:
+                return f"❌ Invalid SET clause: {clause}"
+        
+        if not updates:
+            return "❌ No valid updates specified"
+        
         data = self._read_table(table)
         if data is None:
             return f"❌ Table '{table}' not found"
-
-        # Parse WHERE condition (simple with one $n)
+        
+        # WHERE handling (simple = or >/<)
         filter_func = lambda row: True
         if where_clause:
-            where_match = re.match(r'(\w+)\s*([=<>]+)\s*\$(\d+)', where_clause.strip())
-            if not where_match:
-                return "❌ Invalid WHERE condition (must use $n)"
-            key, op, placeholder_num = where_match.groups()
-            key = self._sanitize_identifier(key)
-            placeholder_idx = int(placeholder_num) - 1
-            if placeholder_idx >= len(params):
-                return "❌ Not enough parameters for WHERE"
-            param_value = params[placeholder_idx]
-            try:
-                if op == '=':
-                    filter_func = lambda row: str(row.get(key)) == str(param_value)
-                elif op == '>':
-                    filter_func = lambda row: float(row.get(key, 0)) > float(param_value)
-                elif op == '<':
-                    filter_func = lambda row: float(row.get(key, 0)) < float(param_value)
-                else:
-                    return "❌ Unsupported operator in WHERE"
-            except ValueError:
-                return "❌ Type mismatch in WHERE condition"
-
+            op_match = re.match(r'(\w+)\s*([=<>]+)\s*(.+)', where_clause.strip())
+            if op_match:
+                key, op, val_raw = op_match.groups()
+                key = self._sanitize_identifier(key)
+                val = re.sub(r"^['\"]|['\"]$", '', val_raw.strip())
+                try:
+                    filter_func = lambda row: (
+                        (str(row.get(key)) == val) if op == '=' else
+                        (float(row.get(key, 0)) > float(val)) if op == '>' else
+                        (float(row.get(key, 0)) < float(val)) if op == '<' else False
+                    )
+                except (ValueError, TypeError):
+                    return "⚠️ Invalid WHERE condition"
+        
         # Apply updates
         updated_count = 0
         for row in data:
@@ -1859,7 +1480,7 @@ class database:
                 for col, val in updates.items():
                     row[col] = val
                 updated_count += 1
-
+        
         if updated_count > 0:
             if self.in_transaction:
                 self.temp_writes[table] = data
@@ -1869,20 +1490,19 @@ class database:
         else:
             return "⚠️ No rows matched the condition"
     
-    def _execute_delete(self, query: str, params: Optional[Tuple]) -> str:
-        """DELETE FROM table WHERE col = $1"""
-        pattern = r"DELETE FROM\s+(\w+)(?:\s+WHERE\s+(.+))?$"
-        match = re.match(pattern, query, re.IGNORECASE)
+    def _execute_delete(self, query: str) -> str:
+        """Execute DELETE query"""
+        match = re.match(r"DELETE FROM\s+(\w+)(?:\s+WHERE\s+(.+))?", query, re.IGNORECASE)
         if not match:
             return "❌ Invalid DELETE query"
-
+        
         table_raw, where_clause = match.groups()
         table = self._sanitize_identifier(table_raw)
-
+        
         data = self._read_table(table)
         if data is None:
             return f"❌ Table '{table}' not found"
-
+        
         if not where_clause:
             # Delete all rows
             count = len(data)
@@ -1891,39 +1511,33 @@ class database:
             else:
                 self._write_table(table, [], "DELETE")
             return f"🗑️ {count} row(s) deleted from '{table}'"
-
-        # Parse WHERE condition with parameter
-        where_match = re.match(r'(\w+)\s*([=<>]+)\s*\$(\d+)', where_clause.strip())
-        if not where_match:
-            return "❌ Invalid WHERE condition (must use $n)"
-        key, op, placeholder_num = where_match.groups()
-        key = self._sanitize_identifier(key)
-        placeholder_idx = int(placeholder_num) - 1
-        if placeholder_idx >= len(params):
-            return "❌ Not enough parameters for WHERE"
-        param_value = params[placeholder_idx]
-
+        
+        # Simple WHERE condition implementation with >/< support
         new_data = []
         deleted_count = 0
-        for row in data:
-            row_val = row.get(key)
+        
+        op_match = re.match(r'(\w+)\s*([=<>]+)\s*(.+)', where_clause.strip())
+        if op_match:
+            key, op, val_raw = op_match.groups()
+            key = self._sanitize_identifier(key)
+            val = re.sub(r"^['\"]|['\"]$", '', val_raw.strip())
             try:
-                if op == '=':
-                    match_cond = (str(row_val) == str(param_value))
-                elif op == '>':
-                    match_cond = (float(row_val) > float(param_value))
-                elif op == '<':
-                    match_cond = (float(row_val) < float(param_value))
-                else:
-                    match_cond = False
+                for row in data:
+                    row_val = row.get(key, '')
+                    match_cond = (
+                        (str(row_val) == val) if op == '=' else
+                        (float(row_val) > float(val)) if op == '>' else
+                        (float(row_val) < float(val)) if op == '<' else False
+                    )
+                    if not match_cond:
+                        new_data.append(row)
+                    else:
+                        deleted_count += 1
             except (ValueError, TypeError):
-                match_cond = False
-
-            if match_cond:
-                deleted_count += 1
-            else:
-                new_data.append(row)
-
+                return "⚠️ Invalid WHERE condition in DELETE"
+        else:
+            return "❌ Invalid WHERE in DELETE"
+        
         if self.in_transaction:
             self.temp_writes[table] = new_data
         else:
@@ -2089,41 +1703,6 @@ class database:
         """Get the environment manager instance"""
         return self.env_manager
 
-    # ----------------------------------------------------------------------
-    # Cloud sync methods
-    # ----------------------------------------------------------------------
-    def _sync_from_cloud(self):
-        """Pull latest versions of all tables from primary cloud storage."""
-        if not self.cloud_sync.providers:
-            return
-        provider = next(iter(self.cloud_sync.providers.values()))
-        try:
-            tables = self.list_tables()
-            for table in tables:
-                if table.startswith('system_'):
-                    continue
-                # Download table data from cloud
-                cloud_data = provider.get_table(self.project_name, table)
-                if cloud_data is not None:
-                    local_data = self._read_table(table)
-                    # Simple version: overwrite if cloud data differs
-                    if cloud_data != local_data:
-                        self._write_table(table, cloud_data, "SYNC_PULL")
-            self._log_security_event("CLOUD_SYNC", "Initial sync from cloud completed")
-        except Exception as e:
-            self._log_security_event("CLOUD_SYNC_ERROR", str(e))
-
-    def _start_background_sync(self):
-        """Start a background thread that periodically syncs from cloud."""
-        def sync_worker():
-            while not self.sync_stop_event.wait(timeout=60):  # every 60 seconds
-                try:
-                    self._sync_from_cloud()
-                except Exception:
-                    pass
-        self.sync_thread = threading.Thread(target=sync_worker, daemon=True)
-        self.sync_thread.start()
-
 def env(env_file: str = ENV_FILE, production: bool = False) -> EnvironmentManager:
     """
     Create and return an EnvironmentManager instance.
@@ -2179,6 +1758,7 @@ def cli_main():
     env_parser.add_argument("--list", action="store_true", help="List all environment variables")
     env_parser.add_argument("--env-file", default=ENV_FILE, help="Environment file path")
     
+    # [Keep other subparsers: query, backup, list, inspect, config]
     # Query command
     query_parser = subparsers.add_parser("query", help="Execute SQL or natural language query")
     query_parser.add_argument("project", help="Project name")
@@ -2299,4 +1879,4 @@ def cli_main():
 __all__ = ['database', 'env', 'migrate_to_production']
 
 if __name__ == "__main__":
-    cli_main()
+    cli_main()    

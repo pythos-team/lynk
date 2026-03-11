@@ -32,7 +32,7 @@ from .server import (
     send_file,
 )
 
-from .soketdb import env
+from .soketdb import env, database, migrate_to_production
 
 # For backward compatibility, expose the old name if needed
 lynkClient = LynkClient

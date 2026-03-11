@@ -247,55 +247,133 @@ class WebSocketClient:
 # ----------------------------------------------------------------------
 # HTTP Client
 # ----------------------------------------------------------------------
+
 class HTTPClient:
-    """Simple async HTTP client for Lynk."""
+    """Async HTTP/1.1 client with security and correctness."""
 
     def __init__(self, host: str, port: int, ssl: bool = False):
         self.host = host
         self.port = port
         self.ssl = ssl
 
-    async def request(self, method: str, path: str, headers: Optional[Dict] = None, body: bytes = b"") -> Tuple[int, Dict[str, str], bytes]:
-        """Perform an HTTP request."""
+    async def request(
+        self,
+        method: str,
+        path: str,
+        headers: Optional[Dict[str, str]] = None,
+        body: bytes = b""
+    ) -> Tuple[int, Dict[str, List[str]], bytes]:
+        """
+        Perform an HTTP request.
+
+        Returns:
+            (status_code, headers_dict, body_bytes)
+
+        Headers are returned as a dict mapping lowercase keys to lists of values.
+        This preserves all occurrences of a header (e.g., multiple Set-Cookie).
+        """
+        # Validate and build request headers
+        request_headers = self._build_request_headers(method, path, headers, body)
+
+        # Connect and send
         reader, writer = await asyncio.open_connection(self.host, self.port, ssl=self.ssl)
         try:
-            req = f"{method} {path} HTTP/1.1\r\nHost: {self.host}\r\n"
-            if headers:
-                for k, v in headers.items():
-                    req += f"{k}: {v}\r\n"
-            req += f"Content-Length: {len(body)}\r\n\r\n"
-            writer.write(req.encode() + body)
+            writer.write(request_headers + body)
             await writer.drain()
 
-            # Read status line
-            line = await reader.readline()
-            if not line:
-                raise ConnectionError("Empty response")
-            parts = line.decode().split()
-            status = int(parts[1])
+            # Parse response
+            status, resp_headers = await self._parse_response_headers(reader)
+            body = await self._read_response_body(reader, resp_headers)
 
-            # Read headers
-            headers = {}
-            while True:
-                line = await reader.readline()
-                if line == b"\r\n":
-                    break
-                key, val = line.decode().strip().split(":", 1)
-                headers[key.lower()] = val.strip()
-
-            # Read body
-            content_length = int(headers.get("content-length", 0))
-            body = await reader.read(content_length) if content_length > 0 else b""
-            return status, headers, body
+            return status, resp_headers, body
         finally:
             writer.close()
             await writer.wait_closed()
 
-    async def get(self, path: str, headers: Optional[Dict] = None) -> Tuple[int, Dict, bytes]:
+    def _build_request_headers(
+        self,
+        method: str,
+        path: str,
+        headers: Optional[Dict[str, str]],
+        body: bytes
+    ) -> bytes:
+        """Build the raw HTTP request headers with security checks."""
+        # Start with request line and mandatory Host header
+        lines = [f"{method} {path} HTTP/1.1", f"Host: {self.host}"]
+
+        # Add user headers with validation
+        if headers:
+            for key, value in headers.items():
+                self._validate_header(key, value)
+                lines.append(f"{key}: {value}")
+
+        # Add Content-Length
+        lines.append(f"Content-Length: {len(body)}")
+        lines.append("")  # empty line before body
+        request = "\r\n".join(lines).encode()
+        return request
+
+    def _validate_header(self, key: str, value: str):
+        """Prevent header injection by rejecting CR/LF characters."""
+        if any(c in key for c in "\r\n") or any(c in value for c in "\r\n"):
+            raise ValueError(f"Invalid header (contains CR/LF): {key}: {value}")
+
+    async def _parse_response_headers(
+        self, reader: asyncio.StreamReader
+    ) -> Tuple[int, Dict[str, List[str]]]:
+        """Parse status line and headers, returning status and a multi‑value header dict."""
+        # Status line
+        line = await reader.readline()
+        if not line:
+            raise ConnectionError("Empty response")
+        parts = line.decode().split()
+        status = int(parts[1])
+
+        # Headers
+        headers = {}
+        while True:
+            line = await reader.readline()
+            if line == b"\r\n":
+                break
+            key, val = line.decode().strip().split(":", 1)
+            key = key.lower().strip()
+            val = val.strip()
+            # Append to list for this key
+            if key in headers:
+                headers[key].append(val)
+            else:
+                headers[key] = [val]
+        return status, headers
+
+    async def _read_response_body(
+        self, reader: asyncio.StreamReader, headers: Dict[str, List[str]]
+    ) -> bytes:
+        """Read the response body based on Content-Length or until connection close."""
+        content_length_headers = headers.get("content-length", [])
+        if content_length_headers:
+            content_length = int(content_length_headers[-1])  # use last value if multiple
+            if content_length == 0:
+                return b""
+            # Use readexactly to get exactly the promised number of bytes
+            return await reader.readexactly(content_length)
+        else:
+            # No Content-Length; read until EOF (simplistic, not for chunked encoding)
+            return await reader.read()
+
+    # ------------------------------------------------------------------
+    # Convenience methods for common HTTP verbs
+    # ------------------------------------------------------------------
+    async def get(self, path: str, headers: Optional[Dict] = None) -> Tuple[int, Dict[str, List[str]], bytes]:
         return await self.request("GET", path, headers)
 
-    async def post(self, path: str, data: Optional[Union[Dict, bytes]] = None, json_data: Optional[Any] = None, headers: Optional[Dict] = None) -> Tuple[int, Dict, bytes]:
-        if json is not None:
+    async def post(
+        self,
+        path: str,
+        data: Optional[Union[Dict, bytes]] = None,
+        json_data: Optional[Any] = None,
+        headers: Optional[Dict] = None,
+    ) -> Tuple[int, Dict[str, List[str]], bytes]:
+        if json_data is not None:
             body = json.dumps(json_data).encode()
             headers = headers or {}
             headers["Content-Type"] = "application/json"
@@ -309,7 +387,47 @@ class HTTPClient:
             body = b""
         return await self.request("POST", path, headers, body)
 
-    # Add other methods as needed (put, delete, etc.)
+    async def put(
+        self,
+        path: str,
+        data: Optional[Union[Dict, bytes]] = None,
+        json_data: Optional[Any] = None,
+        headers: Optional[Dict] = None,
+    ) -> Tuple[int, Dict[str, List[str]], bytes]:
+        # PUT uses same body handling as POST
+        return await self.post(path, data, json_data, headers)  # reusing post logic
+
+    async def delete(
+        self,
+        path: str,
+        headers: Optional[Dict] = None,
+    ) -> Tuple[int, Dict[str, List[str]], bytes]:
+        return await self.request("DELETE", path, headers)
+
+    async def patch(
+        self,
+        path: str,
+        data: Optional[Union[Dict, bytes]] = None,
+        json_data: Optional[Any] = None,
+        headers: Optional[Dict] = None,
+    ) -> Tuple[int, Dict[str, List[str]], bytes]:
+        # PATCH uses same body handling as POST
+        return await self.post(path, data, json_data, headers)
+
+    async def head(
+        self,
+        path: str,
+        headers: Optional[Dict] = None,
+    ) -> Tuple[int, Dict[str, List[str]], bytes]:
+        # HEAD responses typically have no body, but we read if any
+        return await self.request("HEAD", path, headers)
+
+    async def options(
+        self,
+        path: str,
+        headers: Optional[Dict] = None,
+    ) -> Tuple[int, Dict[str, List[str]], bytes]:
+        return await self.request("OPTIONS", path, headers)
 
 # ----------------------------------------------------------------------
 # UDP Client

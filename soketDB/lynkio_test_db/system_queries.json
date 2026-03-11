@@ -1,0 +1,170 @@
+[
+  {
+    "query_id": "fb047bff",
+    "query_text": "CREATE TABLE system_queries (query_id, query_text, execution_time, timestamp)",
+    "execution_time": 1773264792.476298,
+    "timestamp": "2026-03-11T21:33:12.476305",
+    "status": "success"
+  },
+  {
+    "query_id": "e6569ed1",
+    "query_text": "CREATE TABLE system_backups (backup_id, provider, timestamp, size, encrypted)",
+    "execution_time": 1773264792.719842,
+    "timestamp": "2026-03-11T21:33:12.719861",
+    "status": "success"
+  },
+  {
+    "query_id": "69f58fdb",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS wss_logs (\n                            id, timestamp, client_id, direction, event, data, size, opcode\n                        )\n                    ",
+    "execution_time": 1773264793.0749373,
+    "timestamp": "2026-03-11T21:33:13.074946",
+    "status": "success"
+  },
+  {
+    "query_id": "50062922",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS http_logs (\n                            id, timestamp, method, path, status_code, client_ip, user_agent, response_time, request_id\n                        )\n                    ",
+    "execution_time": 1773264793.3621156,
+    "timestamp": "2026-03-11T21:33:13.362123",
+    "status": "success"
+  },
+  {
+    "query_id": "54f47cd6",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS runtime_logs (\n                            id, timestamp, level, message, source\n                        )\n                    ",
+    "execution_time": 1773264793.648604,
+    "timestamp": "2026-03-11T21:33:13.648614",
+    "status": "success"
+  },
+  {
+    "query_id": "f8bbb2e1",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS wss_logs (\n                            id, timestamp, client_id, direction, event, data, size, opcode\n                        )\n                    ",
+    "execution_time": 1773265028.8692746,
+    "timestamp": "2026-03-11T21:37:08.869285",
+    "status": "success"
+  },
+  {
+    "query_id": "9ac89fab",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS http_logs (\n                            id, timestamp, method, path, status_code, client_ip, user_agent, response_time, request_id\n                        )\n                    ",
+    "execution_time": 1773265028.942039,
+    "timestamp": "2026-03-11T21:37:08.942056",
+    "status": "success"
+  },
+  {
+    "query_id": "c94fff97",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS runtime_logs (\n                            id, timestamp, level, message, source\n                        )\n                    ",
+    "execution_time": 1773265028.982961,
+    "timestamp": "2026-03-11T21:37:08.982972",
+    "status": "success"
+  },
+  {
+    "query_id": "e2ad6b40",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS wss_logs (\n                            id, timestamp, client_id, direction, event, data, size, opcode\n                        )\n                    ",
+    "execution_time": 1773265630.5066853,
+    "timestamp": "2026-03-11T21:47:10.506693",
+    "status": "success"
+  },
+  {
+    "query_id": "1265c34f",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS http_logs (\n                            id, timestamp, method, path, status_code, client_ip, user_agent, response_time, request_id\n                        )\n                    ",
+    "execution_time": 1773265630.579884,
+    "timestamp": "2026-03-11T21:47:10.579898",
+    "status": "success"
+  },
+  {
+    "query_id": "f09cd449",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS runtime_logs (\n                            id, timestamp, level, message, source\n                        )\n                    ",
+    "execution_time": 1773265630.6516182,
+    "timestamp": "2026-03-11T21:47:10.651628",
+    "status": "success"
+  },
+  {
+    "query_id": "d022420f",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS wss_logs (\n                            id, timestamp, client_id, direction, event, data, size, opcode\n                        )\n                    ",
+    "execution_time": 1773266507.922729,
+    "timestamp": "2026-03-11T22:01:47.922740",
+    "status": "success"
+  },
+  {
+    "query_id": "38fce9c4",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS http_logs (\n                            id, timestamp, method, path, status_code, client_ip, user_agent, response_time, request_id\n                        )\n                    ",
+    "execution_time": 1773266507.980369,
+    "timestamp": "2026-03-11T22:01:47.980383",
+    "status": "success"
+  },
+  {
+    "query_id": "a1ecb957",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS runtime_logs (\n                            id, timestamp, level, message, source\n                        )\n                    ",
+    "execution_time": 1773266508.0512345,
+    "timestamp": "2026-03-11T22:01:48.051244",
+    "status": "success"
+  },
+  {
+    "query_id": "af1840fa",
+    "query_text": "\n            INSERT INTO runtime_logs (id, timestamp, level, message, source)\n            VALUES ($1, $2, $3, $4, $5)\n        ",
+    "execution_time": 1773266508.2119527,
+    "timestamp": "2026-03-11T22:01:48.211960",
+    "status": "success"
+  },
+  {
+    "query_id": "ec45944e",
+    "query_text": "\n            INSERT INTO http_logs (id, timestamp, method, path, status_code, client_ip, user_agent, response_time, request_id)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n        ",
+    "execution_time": 1773266530.7462015,
+    "timestamp": "2026-03-11T22:02:10.746214",
+    "status": "success"
+  },
+  {
+    "query_id": "3dbaae27",
+    "query_text": "\n            INSERT INTO runtime_logs (id, timestamp, level, message, source)\n            VALUES ($1, $2, $3, $4, $5)\n        ",
+    "execution_time": 1773267726.836901,
+    "timestamp": "2026-03-11T22:22:06.836913",
+    "status": "success"
+  },
+  {
+    "query_id": "65d3861b",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS wss_logs (\n                            id, timestamp, client_id, direction, event, data, size, opcode\n                        )\n                    ",
+    "execution_time": 1773267737.6487253,
+    "timestamp": "2026-03-11T22:22:17.648738",
+    "status": "success"
+  },
+  {
+    "query_id": "cce5c1db",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS http_logs (\n                            id, timestamp, method, path, status_code, client_ip, user_agent, response_time, request_id\n                        )\n                    ",
+    "execution_time": 1773267737.726301,
+    "timestamp": "2026-03-11T22:22:17.726315",
+    "status": "success"
+  },
+  {
+    "query_id": "e35d4d1a",
+    "query_text": "\n                        CREATE TABLE IF NOT EXISTS runtime_logs (\n                            id, timestamp, level, message, source\n                        )\n                    ",
+    "execution_time": 1773267737.7929184,
+    "timestamp": "2026-03-11T22:22:17.792933",
+    "status": "success"
+  },
+  {
+    "query_id": "8d5f0f5f",
+    "query_text": "\n            INSERT INTO runtime_logs (id, timestamp, level, message, source)\n            VALUES ($1, $2, $3, $4, $5)\n        ",
+    "execution_time": 1773267737.9405425,
+    "timestamp": "2026-03-11T22:22:17.940550",
+    "status": "success"
+  },
+  {
+    "query_id": "21c69f3e",
+    "query_text": "\n            INSERT INTO http_logs (id, timestamp, method, path, status_code, client_ip, user_agent, response_time, request_id)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n        ",
+    "execution_time": 1773267758.1034873,
+    "timestamp": "2026-03-11T22:22:38.103499",
+    "status": "success"
+  },
+  {
+    "query_id": "41ac8024",
+    "query_text": "\n            INSERT INTO http_logs (id, timestamp, method, path, status_code, client_ip, user_agent, response_time, request_id)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n        ",
+    "execution_time": 1773268287.713226,
+    "timestamp": "2026-03-11T22:31:27.713235",
+    "status": "success"
+  },
+  {
+    "query_id": "e1c1b792",
+    "query_text": "\n            INSERT INTO runtime_logs (id, timestamp, level, message, source)\n            VALUES ($1, $2, $3, $4, $5)\n        ",
+    "execution_time": 1773271718.2085102,
+    "timestamp": "2026-03-11T23:28:38.208522",
+    "status": "success"
+  }
+]

@@ -37,6 +37,7 @@ import socket
 import struct
 import time
 import uuid
+from datetime import datetime
 import urllib.parse
 from collections import deque, defaultdict
 from contextvars import ContextVar
@@ -663,6 +664,7 @@ class Lynk:
         # Logging integration (soketDB)
         self._db = None
         self.auto_sync_log = False
+        self.loop = None
 
         if self.serve_client:
             self._add_client_route()
@@ -727,29 +729,35 @@ class Lynk:
             return None
 
     # ------------------------------------------------------------------
-    # Distributed query API
+    # Distributed query API (UPDATED: now accepts optional params)
     # ------------------------------------------------------------------
-    async def query_database(self, db_name: str, query: str) -> Any:
+    async def query_database(self, db_name: str, query: str, params: Optional[Tuple] = None) -> Any:
         """
         Execute a query on a named database (from the global _databases registry) asynchronously.
-        Returns the result of db.execute(query).
-        Note: soketDB does not use parameter placeholders; embed values directly.
+        Returns the result of db.execute(query, params).  
+        If parameters are provided, they must be a tuple of values matching $n placeholders in the query.
         """
         db = _databases.get(db_name)
         if not db:
             raise ValueError(f"Database '{db_name}' not found. Available: {list(_databases.keys())}")
         loop = self._loop or asyncio.get_running_loop()
-        return await loop.run_in_executor(None, db.execute, query)
+        if params is None:
+            return await loop.run_in_executor(None, db.execute, query)
+        else:
+            return await loop.run_in_executor(None, db.execute, query, params)
 
     # ------------------------------------------------------------------
     # Helper to run DB queries in executor (non‑blocking, for internal use)
     # ------------------------------------------------------------------
-    async def _db_execute(self, query: str):
+    async def _db_execute(self, query: str, params=None):
         """Run a soketDB execute in a thread executor (for the primary logging DB)."""
         if not self._db:
             return
         loop = self._loop or asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._db.execute, query)
+        if params:
+          await loop.run_in_executor(None, self._db.execute, query, params)
+        else:
+          await loop.run_in_executor(None, self._db.execute, query)
 
     # ------------------------------------------------------------------
     # Core logging methods (auto‑sync) – adapted to soketDB syntax
@@ -760,19 +768,27 @@ class Lynk:
             return
         response_time = time.time() - req.start_time
         user_agent = req.headers.get('user-agent', '')
-        # Build JSON data for INSERT
-        data = {
-            "method": req.method,
-            "path": req.path,
-            "status_code": status_code,
-            "client_ip": req.client_ip,
-            "user_agent": user_agent,
-            "response_time": response_time,
-            "request_id": req.request_id
-        }
-        # soketDB will auto-generate id and timestamp
-        query = f"INSERT INTO http_logs DATA = {json.dumps(data)}"
-        await self._db_execute(query)
+        # Generate id and timestamp
+        log_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat()
+
+        # Parameterised INSERT (9 columns)
+        query = """
+            INSERT INTO http_logs (id, timestamp, method, path, status_code, client_ip, user_agent, response_time, request_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        """
+        params = (
+            log_id,
+            timestamp,
+            req.method,
+            req.path,
+            status_code,
+            req.client_ip,
+            user_agent,
+            response_time,
+            req.request_id
+        )
+        await self._db_execute(query, params)
 
     async def _log_websocket(self, client_id: str, direction: str,
                              event: str = None, data: Any = None,
@@ -788,37 +804,54 @@ class Lynk:
                 data_str = data.hex()  # or truncate for large binaries
             else:
                 data_str = str(data)
-        log_entry = {
-            "client_id": client_id,
-            "direction": direction,
-            "event": event,
-            "data": data_str,
-            "size": size,
-            "opcode": opcode
-        }
-        query = f"INSERT INTO wss_logs DATA = {json.dumps(log_entry)}"
-        await self._db_execute(query)
+
+        log_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat()
+
+        query = """
+            INSERT INTO wss_logs (id, timestamp, client_id, direction, event, data, size, opcode)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        """
+        params = (
+            log_id,
+            timestamp,
+            client_id,
+            direction,
+            event,
+            data_str,
+            size,
+            opcode
+        )
+        await self._db_execute(query, params)
 
     async def _log_runtime(self, level: str, message: str, source: str = "server"):
         """Log a runtime event if auto_sync_log is True."""
         if not self._db or not self.auto_sync_log:
             return
-        log_entry = {
-            "level": level,
-            "message": message,
-            "source": source
-        }
-        query = f"INSERT INTO runtime_logs DATA = {json.dumps(log_entry)}"
-        await self._db_execute(query)
+        log_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat()
+
+        query = """
+            INSERT INTO runtime_logs (id, timestamp, level, message, source)
+            VALUES ($1, $2, $3, $4, $5)
+        """
+        params = (
+            log_id,
+            timestamp,
+            level,
+            message,
+            source
+        )
+        await self._db_execute(query, params)
 
     # ------------------------------------------------------------------
-    # Public manual logging helper
+    # Public manual logging helper – now parameterised
     # ------------------------------------------------------------------
     async def add_log(self, table: str, **kwargs):
         """
         Manually insert a log entry into the specified table.
         Table must be one of: 'http', 'wss', 'runtime'.
-        Keyword arguments must match the table's columns (except id/timestamp).
+        Keyword arguments must match the table's columns (except id/timestamp are generated automatically).
         """
         if not self._db:
             return
@@ -831,8 +864,17 @@ class Lynk:
         if not table_name:
             raise ValueError("Table must be 'http', 'wss', or 'runtime'")
 
-        query = f"INSERT INTO {table_name} DATA = {json.dumps(kwargs)}"
-        await self._db_execute(query)
+        # Auto‑generate id and timestamp
+        kwargs['id'] = str(uuid.uuid4())
+        kwargs['timestamp'] = datetime.now().isoformat()
+
+        # Build parameterised INSERT dynamically
+        columns = list(kwargs.keys())
+        placeholders = [f'${i+1}' for i in range(len(columns))]
+        query = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({', '.join(placeholders)})"
+        params = tuple(kwargs[col] for col in columns)
+
+        await self._db_execute(query, params)
 
     # ------------------------------------------------------------------
     # Public API: CORS

@@ -1,0 +1,35 @@
+[
+  {
+    "id": "3eec475b-9762-45c0-a91e-e4a67f33ae7b",
+    "timestamp": "2026-03-11T22:02:10.687527",
+    "method": "GET",
+    "path": "/",
+    "status_code": 200,
+    "client_ip": "127.0.0.1",
+    "user_agent": "curl/8.18.0",
+    "response_time": 0.0009741783142089844,
+    "request_id": "e13f502b-c6ea-4be5-a6bf-03449e64ea14"
+  },
+  {
+    "id": "d3966fa6-b090-4e5f-a456-1931f2715031",
+    "timestamp": "2026-03-11T22:22:38.039942",
+    "method": "GET",
+    "path": "/",
+    "status_code": 200,
+    "client_ip": "127.0.0.1",
+    "user_agent": "curl/8.18.0",
+    "response_time": 0.0006971359252929688,
+    "request_id": "10adfaa6-67cb-4ec8-b3c7-90523ca29484"
+  },
+  {
+    "id": "d92468ce-ce78-4e2c-abee-d9f40e5726cb",
+    "timestamp": "2026-03-11T22:31:27.273427",
+    "method": "GET",
+    "path": "/",
+    "status_code": 200,
+    "client_ip": "127.0.0.1",
+    "user_agent": "curl/8.18.0",
+    "response_time": 0.010489225387573242,
+    "request_id": "1ba78852-a111-4084-8db2-2d9c01221dc6"
+  }
+]

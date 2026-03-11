@@ -1,0 +1,30 @@
+[
+  {
+    "id": "40ef61e0-1592-4bfb-85e0-5393816ff792",
+    "timestamp": "2026-03-11T22:01:48.132306",
+    "level": "INFO",
+    "message": "Server started on 127.0.0.1:8888 (AUTO)",
+    "source": "server"
+  },
+  {
+    "id": "3edb05bc-ea78-4402-b689-f713b2400751",
+    "timestamp": "2026-03-11T22:22:06.657735",
+    "level": "INFO",
+    "message": "Server stopped",
+    "source": "server"
+  },
+  {
+    "id": "09c3ac05-8586-4c73-9aa4-f6355fbfa3fb",
+    "timestamp": "2026-03-11T22:22:17.873274",
+    "level": "INFO",
+    "message": "Server started on 127.0.0.1:8888 (AUTO)",
+    "source": "server"
+  },
+  {
+    "id": "4ee5c993-e9d0-457b-98f1-072be7af91ca",
+    "timestamp": "2026-03-11T23:28:37.968533",
+    "level": "INFO",
+    "message": "Server stopped",
+    "source": "server"
+  }
+]
