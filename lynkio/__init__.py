@@ -28,3 +28,5 @@ from .server import (
     render_template,
     send_file
 )
+
+from lynkio.soketdb import env

@@ -40,6 +40,146 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, U
 # if soketdb is inside lynkio/
 from lynkio.soketdb import database, env   # <-- soketDB integration
 
+# JAVASCRIPT client
+
+CLIENT_JS = """
+//Lynkio javascript CLIENT
+class LynkClient {
+    constructor(url) {
+        this.url = url;
+        this.ws = null;
+        this.handlers = {};
+        this.binaryHandlers = [];
+        this.connectionPromise = null;
+        this._connectResolve = null;
+        this._connectReject = null;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 10;
+        this.reconnectDelay = 1000; // initial delay 1 second
+        this.shouldReconnect = true;
+    }
+
+    connect() {
+        // If already connecting or connected, return existing promise
+        if (this.connectionPromise) return this.connectionPromise;
+
+        this.connectionPromise = new Promise((resolve, reject) => {
+            this._connectResolve = resolve;
+            this._connectReject = reject;
+        });
+
+        this.ws = new WebSocket(this.url);
+        this.ws.binaryType = 'arraybuffer';
+
+        this.ws.onmessage = (event) => {
+            if (event.data instanceof ArrayBuffer) {
+                const data = new Uint8Array(event.data);
+                this.binaryHandlers.forEach(handler => handler(data));
+            } else {
+                try {
+                    const msg = JSON.parse(event.data);
+                    const { event: evt, data } = msg;
+                    if (this.handlers[evt]) {
+                        this.handlers[evt](data);
+                    }
+                } catch (e) {
+                    console.error('Failed to parse message', e);
+                }
+            }
+        };
+
+        this.ws.onopen = () => {
+            console.log('WebSocket connected');
+            this.reconnectAttempts = 0;
+            if (this._connectResolve) {
+                this._connectResolve();
+                this._connectResolve = null;
+                this._connectReject = null;
+            }
+        };
+
+        this.ws.onclose = (event) => {
+            console.log(`WebSocket closed (code: ${event.code})`);
+            // If connection was never established, reject the promise
+            if (this._connectReject) {
+                this._connectReject(new Error('Connection closed before open'));
+                this._connectResolve = null;
+                this._connectReject = null;
+            }
+            this.connectionPromise = null;
+            this.ws = null;
+
+            if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+                const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts);
+                this.reconnectAttempts++;
+                console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+                setTimeout(() => this.connect(), delay);
+            } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+                console.log('Max reconnect attempts reached');
+            }
+        };
+
+        this.ws.onerror = (err) => {
+            console.error('WebSocket error', err);
+            // If connection promise is still pending, reject it
+            if (this._connectReject) {
+                this._connectReject(err);
+                this._connectResolve = null;
+                this._connectReject = null;
+            }
+        };
+
+        return this.connectionPromise;
+    }
+
+    on(event, callback) {
+        this.handlers[event] = callback;
+    }
+
+    onBinary(callback) {
+        this.binaryHandlers.push(callback);
+    }
+
+    emit(event, data) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ event, data }));
+        } else {
+            console.warn('WebSocket not open, cannot emit', event);
+        }
+    }
+
+    sendBinary(data) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(data);
+        } else {
+            console.warn('WebSocket not open, cannot send binary');
+        }
+    }
+
+    joinRoom(room) {
+        this.emit('join', { room });
+    }
+
+    leaveRoom(room) {
+        this.emit('leave', { room });
+    }
+
+    setSession(key, value) {
+        this.emit('set_session', { key, value });
+    }
+
+    close() {
+        this.shouldReconnect = false; // prevent reconnection
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
+        this.connectionPromise = null;
+        this._connectResolve = null;
+        this._connectReject = null;
+    }
+}"""
+
 # ----------------------------------------------------------------------
 # Global registry of database instances (for distributed queries)
 # ----------------------------------------------------------------------
@@ -423,7 +563,11 @@ class Lynk:
         debug: bool = False,
         enable_database: bool = False,
         database_config: Optional[dict] = None,
+        serve_client: bool = False,
+        client_path: str = "/lynkio/client.js"
     ):
+        self.serve_client = serve_client
+        self.client_path = client_path
         self.host = host
         self.enable_database = enable_database
         self.database_config = database_config
@@ -483,6 +627,18 @@ class Lynk:
         self._db = None                      # primary soketDB instance for auto‑logging
         self.auto_sync_log = False            # auto‑sync flag
 
+        if self.serve_client:
+          self._add_client_route()
+          
+    
+    def _add_client_route(self) -> None:
+      """Register a route that serves the embedded client JavaScript."""
+      pattern = re.compile(f"^{re.escape(self.client_path)}$")
+      async def client_handler(req: Request):
+        return (CLIENT_JS, "application/javascript")
+      self._http_routes.append((pattern, client_handler, {"GET"}))
+      self._logger.info(f"Serving built‑in lynkio client.js at {self.client_path}")
+    
     # ------------------------------------------------------------------
     # DATABASE WRAPPER (soketDB integration)
     # ------------------------------------------------------------------
