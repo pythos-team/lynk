@@ -1,32 +1,38 @@
-from .client import LynkClient
-# Import the main engine and helpers
-from .server import (
-    # Core server
-    Lynk,
+"""
+Lynk – Real-time event engine with native HTTP routing
+Python client and server exports.
+"""
 
-    # HTTP helpers
+# Client exports
+from .client import (
+    LynkClient,
+    WebSocketClient,
+    HTTPClient,
+    UDPClient,
+    WebSocketError,
+)
+
+# Server exports
+from .server import (
+    Lynk,
     Request,
     json_response,
     redirect,
     abort,
     FileResponse,
     StreamingResponse,
-
-    # Routing
     RouteGroup,
-
-    # WebSocket & connections
     Connection,
     StopProcessing,
-    WebSocketError,
     HTTPError,
     encode_frame,
     decode_frame,
     make_handshake_accept,
-
-    # Template & file helpers
     render_template,
-    send_file
+    send_file,
 )
 
-from lynkio.soketdb import env
+from .soketdb import env
+
+# For backward compatibility, expose the old name if needed
+lynkClient = LynkClient

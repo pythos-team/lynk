@@ -9,7 +9,7 @@ if os.path.exists("README.md"):
 
 setup(
     name="lynkio",
-    version="1.1.3",  # Bump version to reflect optional‑only extras
+    version="1.1.5",  # Bump version to reflect optional‑only extras
     author="Alex Austin",
     author_email="benmap40@gmail.com",
     description=(
@@ -26,10 +26,10 @@ setup(
     include_package_data=True,
     
 
-    # ✅ Core: no third‑party packages required – everything works out of the box
+    #  Core: no third‑party packages required – everything works out of the box
     install_requires=[],
 
-    # 🔁 Optional extras – install only what you need
+    # Optional extras – install only what you need
     extras_require={
         "huggingface": [
             "huggingface_hub~=0.16",

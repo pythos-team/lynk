@@ -38,7 +38,6 @@ Welcome to the Lynkio documentation! Lynkio is a lightweight, pure‑Python fram
 
 ## Quick Start
 
-```python
 from lynkio import Lynk
 
 app = Lynk()

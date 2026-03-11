@@ -5,7 +5,6 @@ When creating a Lynkio instance, you can pass various options to control its beh
 
 ## Constructor Parameters
 
-```python
 app = Lynk(
     host="0.0.0.0",
     port=8765,

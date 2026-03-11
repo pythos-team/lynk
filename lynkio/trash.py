@@ -2,14 +2,10 @@
 Lynk – Real‑time event engine with native HTTP routing
 Pure Python, standard library only.
 
-Features (now with AUTO protocol – TCP+UDP concurrently):
+Features:
 - HTTP routing with path parameters and method shortcuts
 - Route groups with prefixes and middleware
 - WebSocket event handling (RFC6455) with fragmentation and binary support
-- UDP datagram server (protocol="UDP") – each datagram is a JSON message with a "path"
-- **AUTO mode**: runs TCP (HTTP/WebSocket) and UDP on the same port simultaneously
-- Client‑ID token for UDP rate limiting (falls back to IP:port)
-- Max payload size enforcement for UDP
 - Middleware and room-based pub/sub
 - Static file serving with streaming
 - Template rendering
@@ -44,7 +40,8 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, U
 # if soketdb is inside lynkio/
 from lynkio.soketdb import database, env   # <-- soketDB integration
 
-# JAVASCRIPT client (unchanged)
+# JAVASCRIPT client
+
 CLIENT_JS = """
 //Lynkio javascript CLIENT
 class LynkClient {
@@ -159,17 +156,6 @@ class LynkClient {
         }
     }
 
-    /**
-     * Send a message that will be routed as a UDP datagram.
-     * The server must have a WebSocket handler for the "__udp" event
-     * that forwards the message to its UDP router.
-     * @param {string} path - The UDP route path (e.g., "/ping")
-     * @param {object} data - The payload to send
-     */
-    sendUdp(path, data) {
-        this.emit('__udp', { path, data });
-    }
-
     joinRoom(room) {
         this.emit('join', { room });
     }
@@ -195,13 +181,14 @@ class LynkClient {
 }"""
 
 # ----------------------------------------------------------------------
-# Global registry of database instances (unchanged)
+# Global registry of database instances (for distributed queries)
 # ----------------------------------------------------------------------
 _databases: Dict[str, database] = {}
 
+
 # ----------------------------------------------------------------------
-# Exceptions (unchanged)
-# ---------------------------------------------------------------------
+# Exceptions
+# ----------------------------------------------------------------------
 class StopProcessing(Exception):
     """Raised in middleware to stop further processing of an event."""
     pass
@@ -553,46 +540,25 @@ def cors_middleware(allowed_origins: Optional[List[str]] = None, allow_credentia
         req._cors_credentials = allow_credentials
         return None
     return middleware
-# ======================================================================
-# UDP Protocol Handler (unchanged)
-# ======================================================================
-class UDPProtocol(asyncio.DatagramProtocol):
-    def __init__(self, app: 'Lynk'):
-        self.app = app
-        self.transport = None
 
-    def connection_made(self, transport: asyncio.DatagramTransport):
-        self.transport = transport
-        self.app._logger.info("UDP server listening")
-
-    def datagram_received(self, data: bytes, addr: Tuple[str, int]):
-        client_ip, client_port = addr
-        asyncio.create_task(self.app._handle_udp_datagram(data, addr, client_ip, client_port))
-
-    def error_received(self, exc):
-        self.app._logger.error(f"UDP error: {exc}")
-
-    def connection_lost(self, exc):
-        self.app._logger.info("UDP server stopped")
 
 # ----------------------------------------------------------------------
-# Lynk – main engine (HTTP + WebSocket + UDP + AUTO)
+# Lynk – main engine (HTTP + WebSocket)
 # ----------------------------------------------------------------------
 class Lynk:
-    """Main event engine. Manages WebSocket clients, HTTP routes, UDP datagrams, and AUTO mode."""
+    """Main event engine. Manages WebSocket clients, rooms, and HTTP routes."""
 
     def __init__(
         self,
         host: str = "0.0.0.0",
         port: int = 8765,
-        protocol: str = "TCP",                    # "TCP", "UDP", or "AUTO"
-        max_payload_size: int = 256 * 1024,       # 256 KiB per frame / datagram
-        max_message_size: int = 1024 * 1024,      # 1 MiB total fragmented message
-        max_body_size: int = 1024 * 1024,         # 1 MiB HTTP body
-        room_batch_size: int = 100,
+        max_payload_size: int = 256 * 1024,      # 256 KiB per frame
+        max_message_size: int = 1024 * 1024,     # 1 MiB total fragmented message
+        max_body_size: int = 1024 * 1024,        # 1 MiB HTTP body
+        room_batch_size: int = 100,               # for chunked room broadcasts
         max_connections: Optional[int] = None,
         allowed_origins: Optional[List[str]] = None,
-        rate_limit: Optional[int] = None,          # messages per second per client/UDP token
+        rate_limit: Optional[int] = None,         # messages per second per client
         enable_keep_alive: bool = False,
         debug: bool = False,
         enable_database: bool = False,
@@ -600,7 +566,6 @@ class Lynk:
         serve_client: bool = False,
         client_path: str = "/lynkio/client.js"
     ):
-        self.protocol = protocol.upper()           # "TCP", "UDP", "AUTO"
         self.serve_client = serve_client
         self.client_path = client_path
         self.host = host
@@ -617,7 +582,7 @@ class Lynk:
         self.enable_keep_alive = enable_keep_alive
         self.debug = debug
 
-        # WebSocket (only used in TCP/AUTO mode)
+        # WebSocket
         self._clients: Dict[str, Connection] = {}
         self._rooms: Dict[str, Set[str]] = {}
         self._handlers: Dict[str, Callable[[Connection, Any], Awaitable[None]]] = {}
@@ -629,23 +594,21 @@ class Lynk:
             Callable[[Connection, str, Any], Awaitable[Optional[Any]]]
         ] = []
 
-        # HTTP/UDP routes: list of (pattern, handler, methods)
+        # HTTP routes: list of (pattern, handler, methods)
         self._http_routes: List[Tuple[Pattern, Callable, Set[str]]] = []
 
-        # HTTP middleware (also used for UDP)
+        # HTTP middleware
         self._http_middleware: List[Callable] = []
 
         # Background tasks
         self._background_tasks: List[Callable[[], Awaitable[None]]] = []
-        self._scheduled_tasks: List[Tuple[float, Callable]] = []
+        self._scheduled_tasks: List[Tuple[float, Callable]] = []  # interval, func
 
-        # Rate limiting per client (sliding window) – keys can be IP:port or client_id (UDP)
+        # Rate limiting per client (sliding window)
         self._client_msg_times: Dict[str, deque] = defaultdict(lambda: deque(maxlen=rate_limit or 0))
 
         # Server state
-        self._tcp_server: Optional[asyncio.Server] = None          # renamed for clarity
-        self._udp_transport: Optional[asyncio.DatagramTransport] = None
-        self._udp_protocol: Optional[UDPProtocol] = None
+        self._server: Optional[asyncio.Server] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._running = False
         self._shutdown_event = asyncio.Event()
@@ -660,22 +623,24 @@ class Lynk:
         self.cors_allowed_origins = []
         self.cors_allow_credentials = False
 
-        # Logging integration (soketDB)
-        self._db = None
-        self.auto_sync_log = False
+        # ---------- Logging integration ----------
+        self._db = None                      # primary soketDB instance for auto‑logging
+        self.auto_sync_log = False            # auto‑sync flag
 
         if self.serve_client:
-            self._add_client_route()
-
+          self._add_client_route()
+          
+    
     def _add_client_route(self) -> None:
-        pattern = re.compile(f"^{re.escape(self.client_path)}$")
-        async def client_handler(req: Request):
-            return (CLIENT_JS, "application/javascript")
-        self._http_routes.append((pattern, client_handler, {"GET"}))
-        self._logger.info(f"Serving built‑in lynkio client.js at {self.client_path}")
-
+      """Register a route that serves the embedded client JavaScript."""
+      pattern = re.compile(f"^{re.escape(self.client_path)}$")
+      async def client_handler(req: Request):
+        return (CLIENT_JS, "application/javascript")
+      self._http_routes.append((pattern, client_handler, {"GET"}))
+      self._logger.info(f"Serving built‑in lynkio client.js at {self.client_path}")
+    
     # ------------------------------------------------------------------
-    # DATABASE WRAPPER (unchanged)
+    # DATABASE WRAPPER (soketDB integration)
     # ------------------------------------------------------------------
     def create_database(self, name: str = "lynkio_test_db",
                         create_log_table: bool = False,
@@ -883,10 +848,11 @@ class Lynk:
     # Public API: HTTP decorators (with method shortcuts)
     # ------------------------------------------------------------------
     def route(self, path: str, methods: Optional[List[str]] = None):
+        """Base HTTP route decorator."""
         if methods is None:
             methods = ["GET"]
         methods = {m.upper() for m in methods}
-        pattern = re.compile(f"^{path}$")
+        pattern = re.compile(f"^{path}$")  # dynamic parameters handled via regex groups
 
         def decorator(func: Callable[[Request], Awaitable[Any]]):
             self._http_routes.append((pattern, func, methods))
@@ -908,12 +874,8 @@ class Lynk:
     def patch(self, path: str):
         return self.route(path, methods=["PATCH"])
 
-    def udp(self, path: str):
-        """Register a UDP route (method set to {'UDP'})."""
-        return self.route(path, methods=["UDP"])
-
     # ------------------------------------------------------------------
-    # Public API: Unified route (HTTP + WebSocket) – unchanged
+    # Public API: Unified route (HTTP + WebSocket) – experimental
     # ------------------------------------------------------------------
     def both(self, path: str):
         """Register a handler for both HTTP GET and WebSocket events on the same path."""
@@ -1078,31 +1040,19 @@ class Lynk:
             asyncio.create_task(handler(client, data))
 
     # ------------------------------------------------------------------
-    # Server lifecycle (AUTO mode starts both TCP and UDP)
+    # Server lifecycle
     # ------------------------------------------------------------------
     async def start(self) -> None:
-        """Start the server based on the selected protocol."""
+        """Start the server."""
         self._loop = asyncio.get_running_loop()
+        self._server = await asyncio.start_server(
+            self._handle_connection, self.host, self.port
+        )
         self._running = True
-
-        # Start TCP server if protocol is TCP or AUTO
-        if self.protocol in ("TCP", "AUTO"):
-            self._tcp_server = await asyncio.start_server(
-                self._handle_connection, self.host, self.port
-            )
-            self._logger.info(f"Lynk TCP server listening on {self.host}:{self.port} (HTTP/WebSocket)")
-
-        # Start UDP server if protocol is UDP or AUTO
-        if self.protocol in ("UDP", "AUTO"):
-            self._udp_protocol = UDPProtocol(self)
-            self._udp_transport, _ = await self._loop.create_datagram_endpoint(
-                lambda: self._udp_protocol,
-                local_addr=(self.host, self.port)
-            )
-            self._logger.info(f"Lynk UDP server listening on {self.host}:{self.port}")
+        self._logger.info(f"Lynk listening on http://{self.host}:{self.port} (WebSocket on same port)")
 
         # Log runtime start
-        await self._log_runtime('INFO', f'Server started on {self.host}:{self.port} ({self.protocol})', 'server')
+        await self._log_runtime('INFO', f'Server started on {self.host}:{self.port}', 'server')
 
         # Start background tasks
         for task in self._background_tasks:
@@ -1112,9 +1062,8 @@ class Lynk:
         for interval, func in self._scheduled_tasks:
             asyncio.create_task(self._run_scheduled(interval, func))
 
-        # Start heartbeat (only if TCP is active)
-        if self.protocol in ("TCP", "AUTO"):
-            asyncio.create_task(self._heartbeat())
+        # Start heartbeat
+        asyncio.create_task(self._heartbeat())
 
     async def _run_scheduled(self, interval: float, func: Callable):
         """Run a scheduled task periodically."""
@@ -1127,25 +1076,18 @@ class Lynk:
                 await self._log_runtime('ERROR', f'Scheduled task {func.__name__} failed', 'scheduler')
 
     async def stop(self) -> None:
-        """Stop all servers gracefully."""
+        """Stop the server gracefully."""
         self._running = False
         self._shutdown_event.set()
-
-        # Close TCP server if it exists
-        if self._tcp_server:
-            self._tcp_server.close()
-            await self._tcp_server.wait_closed()
-            # Close all WebSocket clients
-            close_tasks = [client.close(1001, "Server shutting down") for client in self._clients.values()]
-            if close_tasks:
-                await asyncio.gather(*close_tasks, return_exceptions=True)
-            self._clients.clear()
-            self._rooms.clear()
-
-        # Close UDP transport if it exists
-        if self._udp_transport:
-            self._udp_transport.close()
-
+        if self._server:
+            self._server.close()
+            await self._server.wait_closed()
+        # Send close to all WebSocket clients
+        close_tasks = [client.close(1001, "Server shutting down") for client in self._clients.values()]
+        if close_tasks:
+            await asyncio.gather(*close_tasks, return_exceptions=True)
+        self._clients.clear()
+        self._rooms.clear()
         self._logger.info("Lynk stopped")
         await self._log_runtime('INFO', 'Server stopped', 'server')
 
@@ -1173,7 +1115,7 @@ class Lynk:
             await self.stop()
 
     # ------------------------------------------------------------------
-    # Heartbeat (unchanged)
+    # Heartbeat
     # ------------------------------------------------------------------
     async def _heartbeat(self):
         """Periodically ping clients and close unresponsive ones."""
@@ -1532,135 +1474,7 @@ class Lynk:
                 self._logger.exception("Binary handler error")
 
     # ------------------------------------------------------------------
-    # UDP request handling (upgraded with token-based rate limiting)
-    # ------------------------------------------------------------------
-    async def _handle_udp_datagram(self, data: bytes, addr: Tuple[str, int], client_ip: str, client_port: int) -> None:
-        """Process a UDP datagram with optional client_id token for rate limiting."""
-        # 1. Enforce max payload size
-        if len(data) > self.max_payload_size:
-            self._logger.debug(f"UDP datagram too large ({len(data)} bytes) from {addr}, dropping")
-            return
-
-        # 2. Parse JSON
-        try:
-            msg = json.loads(data)
-            path = msg.get("path")
-            if not isinstance(path, str):
-                raise ValueError("Missing or invalid 'path'")
-            body = msg.get("data", {})
-            client_token = msg.get("client_id")  # optional
-        except (json.JSONDecodeError, ValueError) as e:
-            self._logger.debug(f"Invalid UDP message from {addr}: {e}")
-            return
-
-        # 3. Rate limiting: key = client_token if present, else IP:port
-        rate_key = client_token if isinstance(client_token, str) else f"{client_ip}:{client_port}"
-        if self.rate_limit:
-            now = time.time()
-            times = self._client_msg_times[rate_key]
-            # Remove messages older than 1 second
-            while times and times[0] < now - 1:
-                times.popleft()
-            if len(times) >= self.rate_limit:
-                self._logger.debug(f"UDP rate limit exceeded for {rate_key}")
-                return  # silently drop
-            times.append(now)
-
-        # 4. Build Request object
-        req = Request(
-            method="UDP",
-            path=path,
-            headers={},
-            body=json.dumps(body).encode(),
-            client_ip=client_ip
-        )
-        req.start_time = time.time()
-        req.request_id = str(uuid.uuid4())
-        self.request_id_ctx.set(req.request_id)
-
-        # Log incoming (if logging enabled)
-        await self._log_http(req, 0)  # status 0 indicates UDP
-
-        # 5. Run HTTP middleware (same as for HTTP)
-        for mw in self._http_middleware:
-            try:
-                resp = await mw(req)
-                if resp is not None:
-                    await self._send_udp_response(addr, resp, req)
-                    return
-            except Exception as e:
-                self._logger.exception("UDP middleware error")
-                await self._send_udp_error(addr, 500, "Middleware error", req)
-                return
-
-        # 6. Find matching route
-        route_path = path.split("?", 1)[0]
-        for pattern, handler, methods in self._http_routes:
-            match = pattern.match(route_path)
-            if match:
-                if "UDP" not in methods:
-                    await self._send_udp_error(addr, 405, f"Method UDP not allowed", req)
-                    return
-                kwargs = match.groupdict()
-                try:
-                    result = await handler(req, **kwargs)
-                    await self._send_udp_response(addr, result, req)
-                except HTTPError as e:
-                    await self._send_udp_error(addr, e.status_code, e.message, req)
-                except Exception as e:
-                    self._logger.exception(f"UDP handler error for {path}")
-                    await self._send_udp_error(addr, 500, "Internal Server Error", req)
-                break
-        else:
-            await self._send_udp_error(addr, 404, f"Not Found: {route_path}", req)
-
-    async def _send_udp_response(self, addr: Tuple[str, int], result: Any, req: Request) -> None:
-        """Convert handler result to a UDP datagram and send back."""
-        # Same as before, but we could include the original client_id in response if needed
-        if isinstance(result, dict) and "_redirect" in result:
-            response_data = {"status": result.get("_status", 302), "location": result["_redirect"]}
-            payload = json.dumps(response_data).encode()
-            self._udp_transport.sendto(payload, addr)
-            await self._log_http(req, result.get("_status", 302))
-            return
-
-        if isinstance(result, dict) and "_json" in result:
-            response_data = result["_json"]
-            status = result.get("_status", 200)
-            payload = json.dumps(response_data).encode()
-            self._udp_transport.sendto(payload, addr)
-            await self._log_http(req, status)
-            return
-
-        if isinstance(result, tuple) and len(result) == 2:
-            body, _ = result
-        elif isinstance(result, str):
-            body = result
-        elif isinstance(result, dict):
-            body = json.dumps(result)
-        elif isinstance(result, bytes):
-            body = result
-        else:
-            body = str(result)
-
-        if isinstance(body, str):
-            payload = body.encode()
-        else:
-            payload = body
-
-        self._udp_transport.sendto(payload, addr)
-        await self._log_http(req, 200)
-
-    async def _send_udp_error(self, addr: Tuple[str, int], code: int, message: str, req: Request) -> None:
-        error_payload = json.dumps({"error": code, "message": message}).encode()
-        try:
-            self._udp_transport.sendto(error_payload, addr)
-        except:
-            pass
-        await self._log_http(req, code)
-
-    # ------------------------------------------------------------------
-    # HTTP response helpers (unchanged)
+    # HTTP response helpers
     # ------------------------------------------------------------------
     async def _send_http_response(self, writer: asyncio.StreamWriter, result: Any, req: Request) -> None:
         """Convert handler result to HTTP response and send."""
@@ -1867,7 +1681,7 @@ def render_template(template_name: str, context: Optional[Dict[str, Any]] = None
 
 
 # ----------------------------------------------------------------------
-# CLI entry point (updated with --protocol AUTO)
+# CLI entry point (if module run as script)
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
     import argparse
@@ -1875,7 +1689,6 @@ if __name__ == "__main__":
     parser.add_argument("app", help="Application module in format 'module:app'")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind")
     parser.add_argument("--port", type=int, default=8765, help="Port to bind")
-    parser.add_argument("--protocol", default="TCP", choices=["TCP", "UDP", "AUTO"], help="Protocol to use")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     args = parser.parse_args()
 
@@ -1888,13 +1701,11 @@ if __name__ == "__main__":
     # Configure logging
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
 
-    # Set host/port/protocol if app doesn't have them
+    # Set host/port if app doesn't have them
     if hasattr(app, 'host'):
         app.host = args.host
     if hasattr(app, 'port'):
         app.port = args.port
-    if hasattr(app, 'protocol'):
-        app.protocol = args.protocol   # override if present
     if hasattr(app, 'debug'):
         app.debug = args.debug
 
