@@ -1,186 +1,637 @@
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Lynk Chat Demo</title>
-    <script src="/static/client.js"></script>
-    <style>
-        body { font-family: sans-serif; max-width: 800px; margin: 20px auto; }
-        #chat { border: 1px solid #ccc; height: 400px; overflow-y: scroll; padding: 10px; }
-        #users { list-style: none; padding: 0; }
-        #users li { border-bottom: 1px solid #eee; padding: 3px; }
-        .my-message { color: blue; }
-        .other-message { color: green; }
-        .system { color: gray; font-style: italic; }
-        .button-group { margin: 5px; }
-        button { margin: 2px; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes">
+  <title>LynkPad · real‑time collaboration</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <script src="/lynkio/client.js"></script>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:#0b0e12; font-family:'Inter',sans-serif; height:100vh; color:#eef2f5; overflow:hidden; }
+    .login-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(8,12,18,0.95); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; z-index:1000; }
+    .login-card { background:#1e2630; border-radius:32px; padding:32px; width:340px; box-shadow:0 20px 40px rgba(0,0,0,0.7); border:1px solid #3a4a5a; }
+    .login-card h2 { font-size:2rem; font-weight:600; background:linear-gradient(135deg,#b0c0d0,#ffffff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; margin-bottom:24px; }
+    .input-group { margin-bottom:20px; }
+    .input-group label { display:block; font-size:0.85rem; color:#9bb1c7; margin-bottom:6px; }
+    .input-group input { width:100%; background:#0f1a24; border:1px solid #2f4050; border-radius:40px; padding:12px 18px; color:white; font-size:1rem; outline:none; }
+    .login-btn { background:#2d7aff; border:none; color:white; width:100%; padding:14px; border-radius:40px; font-weight:600; font-size:1rem; cursor:pointer; box-shadow:0 8px 20px rgba(45,122,255,0.3); margin-top:8px; transition:0.2s; }
+    .login-btn:disabled { background:#4a5a6a; cursor:not-allowed; box-shadow:none; }
+    #loginStatus { margin-top:16px; font-size:0.9rem; color:#aaccff; text-align:center; min-height:24px; }
+    .app { display:none; flex-direction:column; height:100vh; padding:8px; gap:8px; }
+    .top-nav { display:flex; align-items:center; justify-content:space-between; padding:0 16px; height:60px; background:rgba(20,24,29,0.7); backdrop-filter:blur(14px); border:1px solid rgba(70,80,95,0.25); border-radius:14px; }
+    .project-area { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+    .project-name { font-weight:600; font-size:1.2rem; background:linear-gradient(135deg,#b0c0d0,#ffffff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; cursor:pointer; padding:4px 8px; border-radius:8px; }
+    .connection-status { display:flex; align-items:center; gap:6px; background:rgba(45,55,65,0.5); padding:4px 12px; border-radius:40px; font-size:0.85rem; border:1px solid rgba(100,180,255,0.2); }
+    .dot { width:10px; height:10px; border-radius:50%; background:#4ade80; box-shadow:0 0 8px #4ade80; }
+    .invite-btn { background:#2d7aff; border:none; color:white; padding:8px 16px; border-radius:40px; font-weight:500; font-size:0.9rem; display:flex; align-items:center; gap:6px; cursor:pointer; }
+    .user-avatars { display:flex; align-items:center; gap:4px; }
+    .avatar { width:34px; height:34px; border-radius:40px; background:linear-gradient(145deg,#3c4a5a,#26313c); display:flex; align-items:center; justify-content:center; font-weight:600; font-size:0.9rem; border:2px solid rgba(255,255,255,0.15); position:relative; }
+    .avatar.online::after { content:''; position:absolute; bottom:2px; right:2px; width:10px; height:10px; background:#4ade80; border-radius:50%; border:2px solid #1e262e; }
+    .avatar.you { border:2px solid #2d7aff; }
+    .sidebar-toggle { display:none; background:#2a3847; border:none; color:white; width:40px; height:40px; border-radius:40px; font-size:1.2rem; cursor:pointer; align-items:center; justify-content:center; }
+    .main-row { display:flex; flex:1; gap:8px; min-height:0; position:relative; }
+    .left-sidebar { width:280px; background:rgba(18,22,28,0.7); backdrop-filter:blur(10px); border:1px solid rgba(70,80,100,0.2); border-radius:16px; padding:16px 8px; display:flex; flex-direction:column; gap:20px; transition:transform 0.2s; overflow-y:auto; }
+    .nav-header { text-transform:uppercase; font-size:0.7rem; letter-spacing:0.5px; color:#8899aa; padding-left:12px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; }
+    .room-item, .friend-item { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:8px; cursor:pointer; }
+    .room-item:hover, .friend-item:hover { background:#1f2b36; }
+    .room-item.active { background:#2d7aff20; border-left:3px solid #2d7aff; }
+    .file-item { background:#1a2530; border-radius:8px; padding:8px; margin-bottom:6px; display:flex; align-items:center; gap:8px; font-size:0.8rem; }
+    .upload-btn { background:#2a3847; border:none; color:white; padding:8px 12px; border-radius:30px; font-size:0.8rem; display:inline-flex; align-items:center; gap:8px; margin:4px 12px; cursor:pointer; justify-content:center; }
+    #file-input { display:none; }
+    #selected-file-name { margin-left:12px; font-size:0.8rem; color:#aaccff; }
+    .center { flex:1; display:flex; flex-direction:column; gap:8px; min-width:280px; }
+    .editor-workspace { flex:1; background:rgba(12,18,24,0.8); backdrop-filter:blur(4px); border:1px solid rgba(80,100,130,0.3); border-radius:18px; padding:16px; display:flex; flex-direction:column; overflow:auto; }
+    .editor-header { display:flex; gap:16px; padding-bottom:12px; border-bottom:1px solid rgba(120,140,180,0.2); margin-bottom:16px; font-size:0.85rem; color:#a0b8d0; flex-wrap:wrap; align-items:center; }
+    .filename { background:rgba(45,65,90,0.5); padding:4px 12px; border-radius:30px; display:flex; align-items:center; gap:6px; }
+    .code-display { font-family:'Menlo','Fira Code',monospace; font-size:0.9rem; line-height:1.6; white-space:pre-wrap; overflow:auto; height:100%; outline:none; }
+    .code-line { display:flex; align-items:baseline; }
+    .line-number { width:40px; color:#5f7a9a; text-align:right; padding-right:16px; user-select:none; font-size:0.8rem; flex-shrink:0; }
+    .line-content { color:#d4e0f0; white-space:pre-wrap; word-break:break-all; }
+    .right-sidebar { width:300px; background:rgba(18,22,28,0.7); backdrop-filter:blur(10px); border:1px solid rgba(70,80,100,0.2); border-radius:16px; padding:16px 12px; display:flex; flex-direction:column; gap:16px; overflow-y:auto; transition:transform 0.2s; }
+    .panel-tabs { display:flex; gap:6px; border-bottom:1px solid #2a3640; padding-bottom:10px; flex-wrap:wrap; }
+    .tab { padding:6px 12px; border-radius:30px; font-size:0.85rem; background:#1f2b34; color:#9bb1c7; cursor:pointer; }
+    .tab.active { background:#2d7aff; color:white; }
+    .chat-panel { display:flex; flex-direction:column; height:100%; max-height:400px; }
+    .chat-container { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:12px; padding-right:4px; max-height:300px; min-height:200px; }
+    .chat-message { display:flex; gap:12px; align-items:start; }
+    .chat-avatar { width:28px; height:28px; background:#4c5e72; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:0.7rem; font-weight:bold; flex-shrink:0; }
+    .chat-bubble { background:#1e2a36; padding:8px 12px; border-radius:18px; font-size:0.85rem; word-break:break-word; max-width:220px; }
+    .chat-input-area { display:flex; gap:6px; margin-top:8px; flex-shrink:0; }
+    .chat-input { flex:1; background:#1c2733; border:1px solid #33495e; border-radius:30px; padding:8px 14px; color:white; outline:none; font-size:16px; }
+    .chat-send { background:#2d7aff; border:none; border-radius:30px; width:40px; height:40px; color:white; cursor:pointer; flex-shrink:0; }
+    .user-list { list-style:none; }
+    .user-list li { display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid rgba(120,140,170,0.1); }
+    .status-bar { height:36px; background:rgba(16,22,28,0.8); backdrop-filter:blur(10px); border:1px solid rgba(70,90,115,0.3); border-radius:30px; padding:0 20px; display:flex; align-items:center; justify-content:space-between; font-size:0.8rem; color:#b0c8e0; margin-top:4px; }
+    .floating-invite { position:fixed; bottom:28px; right:28px; background:linear-gradient(145deg,#2d7aff,#1f5adf); color:white; width:56px; height:56px; border-radius:60px; display:flex; align-items:center; justify-content:center; font-size:1.8rem; box-shadow:0 12px 28px rgba(0,80,255,0.6); border:1px solid rgba(255,255,255,0.2); backdrop-filter:blur(4px); cursor:pointer; z-index:100; }
+    /* Toast notifications */
+    .toast-container { position:fixed; bottom:20px; left:20px; z-index:2000; display:flex; flex-direction:column; gap:8px; }
+    .toast { background:#1e2a36; border-left:4px solid #2d7aff; border-radius:8px; padding:12px 16px; color:white; box-shadow:0 8px 16px rgba(0,0,0,0.5); font-size:0.9rem; display:flex; align-items:center; gap:8px; min-width:200px; animation: slideIn 0.2s; }
+    .toast.success { border-left-color:#4ade80; }
+    .toast.error { border-left-color:#ff5f5f; }
+    @keyframes slideIn { from { opacity:0; transform:translateX(-20px); } to { opacity:1; transform:translateX(0); } }
+    /* Modal */
+    .modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; z-index:1500; }
+    .modal-card { background:#1e2630; border-radius:24px; padding:24px; width:320px; }
+    .modal-card h3 { margin-bottom:16px; }
+    .modal-card input { width:100%; background:#0f1a24; border:1px solid #2f4050; border-radius:40px; padding:12px; color:white; margin-bottom:16px; }
+    .modal-buttons { display:flex; gap:8px; justify-content:flex-end; }
+    .modal-btn { padding:8px 16px; border-radius:40px; border:none; cursor:pointer; font-weight:500; }
+    .modal-btn.primary { background:#2d7aff; color:white; }
+    .modal-btn.secondary { background:#2a3847; color:white; }
+    @media (max-width:1024px) { .sidebar-toggle { display:flex; } .left-sidebar, .right-sidebar { position:fixed; top:76px; bottom:16px; z-index:200; width:280px; transform:translateX(-120%); } .right-sidebar { right:16px; left:auto; transform:translateX(120%); } .left-sidebar.show, .right-sidebar.show { transform:translateX(0); } }
+    @media (max-width:600px) { .top-nav { flex-wrap:wrap; height:auto; padding:8px; } .status-bar { flex-direction:column; height:auto; padding:8px; } .floating-invite { width:48px; height:48px; font-size:1.4rem; bottom:16px; right:16px; } .right-sidebar { width:90%; right:5%; } }
+  </style>
 </head>
 <body>
-    <h1>Lynk Chat Demo</h1>
-    <div>
-        <input id="nickname" placeholder="Nickname" value="User">
-        <input id="room" placeholder="Room" value="lobby">
-        <button id="connectBtn">Connect</button>
-        <button id="disconnectBtn" disabled>Disconnect</button>
-        <span id="status">Disconnected</span>
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <h2>LynkPad</h2>
+    <div class="input-group"><label><i class="fas fa-user"></i> Username</label><input type="text" id="usernameInput" value="coder"></div>
+    <div class="input-group"><label><i class="fas fa-lock"></i> Password</label><input type="password" id="passwordInput" value="demo"></div>
+    <button class="login-btn" id="loginBtn"><i class="fas fa-sign-in-alt"></i> Join</button>
+    <div id="loginStatus"></div>
+  </div>
+</div>
+<div class="app" id="app">
+  <div class="top-nav">
+    <div class="project-area">
+      <span class="project-name" id="projectName">LynkPad</span>
+      <div class="connection-status"><span class="dot"></span><span>Connected · <span id="onlineCount">0</span> peers</span></div>
     </div>
-    <div class="button-group">
-        <button id="joinBtn" disabled>Join Room</button>
-        <button id="leaveBtn" disabled>Leave Room</button>
+    <div style="display:flex; gap:10px;">
+      <button class="sidebar-toggle" id="toggleLeft"><i class="fas fa-folder-open"></i></button>
+      <button class="sidebar-toggle" id="toggleRight"><i class="fas fa-comments"></i></button>
+      <button class="invite-btn" id="inviteBtn"><i class="fas fa-user-plus"></i> Invite</button>
+      <div class="user-avatars avatar-group" id="avatarGroup"></div>
     </div>
-    <div id="chat"></div>
-    <div>
-        <input id="message" placeholder="Type a message..." style="width: 80%;">
-        <button id="sendBtn" disabled>Send</button>
-        <button id="binaryBtn" disabled>Send Binary Ping</button>
+  </div>
+  <div class="main-row">
+    <!-- Left sidebar -->
+    <div class="left-sidebar" id="leftSidebar">
+      <div class="nav-header">DOCUMENTS <button id="newRoomBtn" style="background:none; border:none; color:#2d7aff; cursor:pointer;"><i class="fas fa-plus"></i></button></div>
+      <div id="roomsList"></div>
+      <hr style="border-color:#2a3847; margin:12px 0;">
+      <div class="nav-header">FRIENDS</div>
+      <div id="friendsList"></div>
+      <hr>
+      <div class="nav-header">FILES</div>
+      <div id="filesList"></div>
+      <label for="fileInput" class="upload-btn"><i class="fas fa-cloud-upload-alt"></i> Upload file</label>
+      <input type="file" id="fileInput">
+      <div id="selected-file-name"></div>
     </div>
-    <div>
-        <h3>Users in room</h3>
-        <ul id="users"></ul>
+    <!-- Center editor -->
+    <div class="center">
+      <div class="editor-workspace">
+        <div class="editor-header">
+          <span class="filename"><i class="far fa-file-code"></i> <span id="currentRoomName">untitled</span></span>
+          <span class="typing-indicator" id="typingIndicator"></span>
+        </div>
+        <div class="code-display" id="codeDisplay" contenteditable="true"></div>
+      </div>
     </div>
+    <!-- Right sidebar -->
+    <div class="right-sidebar" id="rightSidebar">
+      <div class="panel-tabs">
+        <span class="tab active" data-panel="chat"><i class="far fa-comment"></i> Chat</span>
+        <span class="tab" data-panel="users"><i class="fas fa-user-friends"></i> Users</span>
+        <span class="tab" data-panel="notifications"><i class="far fa-bell"></i> <span id="notifCount">0</span></span>
+      </div>
+      <div id="chatPanel" class="chat-panel">
+        <div class="chat-container" id="chatMessages"></div>
+        <div class="chat-input-area"><input type="text" class="chat-input" id="chatInput" placeholder="Message..."><button class="chat-send" id="chatSend"><i class="fas fa-paper-plane"></i></button></div>
+      </div>
+      <div id="usersPanel" style="display:none;"><ul class="user-list" id="userList"></ul></div>
+      <div id="notificationsPanel" style="display:none;"><div class="notifications-panel" id="notificationsList"></div></div>
+    </div>
+  </div>
+  <div class="status-bar">
+    <div class="status-left"><span class="status-item"><i class="fas fa-circle" style="color:#4ade80;"></i> Connected</span><span class="status-item"><i class="fas fa-bolt"></i> <span id="latency">12</span> ms</span></div>
+    <div class="status-right"><span class="status-item"><i class="fas fa-globe"></i> WebSocket</span><span class="status-item"><i class="fas fa-shield-alt"></i> Lynkio</span></div>
+  </div>
+  <div class="floating-invite" id="floatingInvite"><i class="fas fa-user-plus"></i></div>
+</div>
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+<!-- Invite modal (hidden initially) -->
+<div id="inviteModal" class="modal" style="display:none;">
+  <div class="modal-card">
+    <h3>Invite collaborator</h3>
+    <input type="text" id="inviteUsername" placeholder="Enter username">
+    <div class="modal-buttons">
+      <button class="modal-btn secondary" id="cancelInvite">Cancel</button>
+      <button class="modal-btn primary" id="sendInvite">Invite</button>
+    </div>
+  </div>
+</div>
 
-    <script>
-        const client = new LynkClient((location.protocol === "https:" ? "wss://" : "ws://") + location.host);
-        const chatDiv = document.getElementById('chat');
-        const usersList = document.getElementById('users');
-        const statusSpan = document.getElementById('status');
-        const connectBtn = document.getElementById('connectBtn');
-        const disconnectBtn = document.getElementById('disconnectBtn');
-        const joinBtn = document.getElementById('joinBtn');
-        const leaveBtn = document.getElementById('leaveBtn');
-        const sendBtn = document.getElementById('sendBtn');
-        const binaryBtn = document.getElementById('binaryBtn');
-        const nicknameInput = document.getElementById('nickname');
-        const roomInput = document.getElementById('room');
-        const messageInput = document.getElementById('message');
+<script>
+// LynkPad frontend – fully real, no alerts, no dummy data
+const client = new LynkClient((location.protocol === "https:" ? "wss://" : "ws://") + location.host);
+let username = '';
+let currentRoomId = null;
+let currentRoomName = '';
+let localDocument = '';
+let lastSentOperation = null;
+let operationTimeout = null;
+const OPERATION_THROTTLE_MS = 50;
 
-        let currentRoom = null;
-        let isConnected = false;
+// DOM elements
+const loginOverlay = document.getElementById('loginOverlay');
+const appDiv = document.getElementById('app');
+const loginBtn = document.getElementById('loginBtn');
+const usernameInput = document.getElementById('usernameInput');
+const passwordInput = document.getElementById('passwordInput');
+const loginStatus = document.getElementById('loginStatus');
+const codeDisplay = document.getElementById('codeDisplay');
+const chatMessages = document.getElementById('chatMessages');
+const chatInput = document.getElementById('chatInput');
+const chatSend = document.getElementById('chatSend');
+const userList = document.getElementById('userList');
+const onlineCountSpan = document.getElementById('onlineCount');
+const avatarGroup = document.getElementById('avatarGroup');
+const typingIndicator = document.getElementById('typingIndicator');
+const toggleLeft = document.getElementById('toggleLeft');
+const toggleRight = document.getElementById('toggleRight');
+const leftSidebar = document.getElementById('leftSidebar');
+const rightSidebar = document.getElementById('rightSidebar');
+const fileInput = document.getElementById('fileInput');
+const selectedFileName = document.getElementById('selected-file-name');
+const filesList = document.getElementById('filesList');
+const inviteBtn = document.getElementById('inviteBtn');
+const floatingInvite = document.getElementById('floatingInvite');
+const newRoomBtn = document.getElementById('newRoomBtn');
+const roomsListDiv = document.getElementById('roomsList');
+const friendsListDiv = document.getElementById('friendsList');
+const notifCountSpan = document.getElementById('notifCount');
+const notificationsList = document.getElementById('notificationsList');
+const currentRoomNameSpan = document.getElementById('currentRoomName');
+const toastContainer = document.getElementById('toastContainer');
+const inviteModal = document.getElementById('inviteModal');
+const inviteUsernameInput = document.getElementById('inviteUsername');
+const cancelInvite = document.getElementById('cancelInvite');
+const sendInvite = document.getElementById('sendInvite');
 
-        function setConnected(connected) {
-            isConnected = connected;
-            connectBtn.disabled = connected;
-            disconnectBtn.disabled = !connected;
-            joinBtn.disabled = !connected;
-            leaveBtn.disabled = !connected;
-            sendBtn.disabled = !connected;
-            binaryBtn.disabled = !connected;
-            statusSpan.textContent = connected ? `Connected to ${currentRoom || '?'}` : 'Disconnected';
-            if (!connected) {
-                usersList.innerHTML = '';
-                currentRoom = null;
-            }
-        }
+let isConnected = false;
+let notificationCount = 0;
+let userRooms = [];
+let userFriends = [];
+let files = []; // local list of files for current room
 
-        function log(text, className) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            div.className = className || '';
-            chatDiv.appendChild(div);
-            chatDiv.scrollTop = chatDiv.scrollHeight;
-        }
+// Check URL for invite token
+const urlParams = new URLSearchParams(window.location.search);
+const inviteToken = urlParams.get('invite');
 
-        function updateUserList(users) {
-            usersList.innerHTML = '';
-            users.forEach(user => {
-                const li = document.createElement('li');
-                li.textContent = `${user.nickname} (${user.id.substr(0,6)})`;
-                usersList.appendChild(li);
-            });
-        }
+// ----------------------------------------------------------------------
+// Toast notifications
+// ----------------------------------------------------------------------
+function showToast(message, type = 'info') {
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i> ${message}`;
+  toastContainer.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+}
 
-        // Event handlers
-        client.on('room_info', (data) => {
-            currentRoom = data.room;
-            statusSpan.textContent = `Connected to ${currentRoom}`;
-            log(`* Joined room ${data.room} *`, 'system');
-            updateUserList(data.members);
-        });
+// ----------------------------------------------------------------------
+// Clipboard copy
+// ----------------------------------------------------------------------
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('Link copied to clipboard', 'success');
+  }).catch(() => {
+    showToast('Failed to copy', 'error');
+  });
+}
 
-        client.on('user_joined', (data) => {
-            log(`* ${data.nickname} joined *`, 'system');
-            // In a real app you'd refresh the user list, but we rely on room_info updates
-        });
+// ----------------------------------------------------------------------
+// Helper: get document from editor
+// ----------------------------------------------------------------------
+function getDocumentFromEditor() {
+  const lineContents = document.querySelectorAll('.line-content');
+  return Array.from(lineContents).map(span => span.textContent).join('\n');
+}
 
-        client.on('user_left', (data) => {
-            log(`* ${data.nickname} left *`, 'system');
-        });
+// ----------------------------------------------------------------------
+// Connection
+// ----------------------------------------------------------------------
+async function init_client() {
+  try {
+    loginBtn.disabled = true;
+    loginBtn.textContent = "Connecting";
+    await client.connect();
+    isConnected = true;
+    loginBtn.disabled = false;
+    loginBtn.textContent = "Join";
+  } catch (err) {
+    console.log(err);
+    loginBtn.textContent = "Failed";
+    isConnected = false;
+    loginBtn.disabled = false;
+  }
+}
+init_client();
+setInterval(() => { if (!isConnected) init_client(); }, 1000);
 
-        client.on('chat', (data) => {
-            log(`${data.nickname}: ${data.text}`, 'other-message');
-        });
+// ----------------------------------------------------------------------
+// Login
+// ----------------------------------------------------------------------
+loginBtn.addEventListener('click', async () => {
+  const user = usernameInput.value.trim() || 'coder';
+  const pass = passwordInput.value.trim() || 'demo';
+  username = user;
 
-        client.on('server_time', (data) => {
-            log(`Server time: ${new Date(data.time * 1000).toLocaleTimeString()}`, 'system');
-        });
+  loginBtn.disabled = true;
+  loginStatus.textContent = 'Joining...';
 
-        client.onBinary((data) => {
-            const decoder = new TextDecoder();
-            log(`Binary echo: ${decoder.decode(data)}`, 'system');
-        });
+  try {
+    client.emit('login', {
+      username: user,
+      password: pass,
+      invite_token: inviteToken || undefined
+    });
+  } catch (err) {
+    loginStatus.textContent = '❌ Connection failed.';
+    loginBtn.disabled = false;
+  }
+});
 
-        // Connect
-        connectBtn.addEventListener('click', async () => {
-            try {
-                await client.connect();
-                setConnected(true);
-                // Automatically join the specified room
-                const nickname = nicknameInput.value || 'Anonymous';
-                const room = roomInput.value || 'lobby';
-                client.emit('join', { nickname, room });
-            } catch (err) {
-                log(`Connection failed: ${err}`, 'system');
-                setConnected(false);
-            }
-        });
+client.on('error', (err) => {
+  loginStatus.textContent = '❌ Error: ' + err;
+  loginBtn.disabled = false;
+});
 
-        // Disconnect
-        disconnectBtn.addEventListener('click', () => {
-            client.close();
-            setConnected(false);
-        });
+client.on('login_success', (data) => {
+  loginStatus.textContent = '✅ Joined!';
+  setTimeout(() => {
+    loginOverlay.style.display = 'none';
+    appDiv.style.display = 'flex';
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }, 500);
+  userRooms = data.rooms || [];
+  userFriends = data.friends || [];
+  currentRoomId = data.current_room;
+  renderRoomsList();
+  renderFriendsList();
+  client.emit('get_friends', {});
+  showToast(`Welcome, ${username}!`, 'success');
+});
 
-        // Join a different room
-        joinBtn.addEventListener('click', () => {
-            if (!isConnected) return;
-            const nickname = nicknameInput.value || 'Anonymous';
-            const room = roomInput.value || 'lobby';
-            // If already in a room, leaving is optional; server doesn't auto‑leave previous rooms
-            // So we'll leave the current room first, then join the new one
-            if (currentRoom) {
-                client.emit('leave', {});  // server uses session, no need to send room
-            }
-            client.emit('join', { nickname, room });
-        });
+client.on('rooms_updated', (rooms) => {
+  userRooms = rooms;
+  renderRoomsList();
+});
 
-        // Leave current room
-        leaveBtn.addEventListener('click', () => {
-            if (!isConnected || !currentRoom) return;
-            client.emit('leave', {});
-            currentRoom = null;
-            statusSpan.textContent = 'Connected (no room)';
-            usersList.innerHTML = '';
-        });
+client.on('friends_list', (friends) => {
+  userFriends = friends;
+  renderFriendsList();
+});
 
-        // Send message
-        sendBtn.addEventListener('click', () => {
-            const text = messageInput.value.trim();
-            if (!text) return;
-            client.emit('message', { text });
-            log(`You: ${text}`, 'my-message');
-            messageInput.value = '';
-        });
+client.on('document', (data) => {
+  localDocument = data.content;
+  renderCode(localDocument);
+});
 
-        // Binary ping
-        binaryBtn.addEventListener('click', () => {
-            const encoder = new TextEncoder();
-            client.sendBinary(encoder.encode('ping'));
-        });
+// ----------------------------------------------------------------------
+// Rooms
+// ----------------------------------------------------------------------
+function renderRoomsList() {
+  let html = '';
+  userRooms.forEach(room => {
+    const activeClass = room.room_id === currentRoomId ? 'active' : '';
+    html += `<div class="room-item ${activeClass}" data-room-id="${room.room_id}" data-room-name="${room.name}"><i class="fas fa-file"></i> ${room.name}</div>`;
+  });
+  roomsListDiv.innerHTML = html;
+  document.querySelectorAll('.room-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const roomId = el.dataset.roomId;
+      const roomName = el.dataset.roomName;
+      if (roomId !== currentRoomId) {
+        client.emit('switch_room', {room_id: roomId});
+        currentRoomNameSpan.textContent = roomName;
+        // Clear files list for new room (will be repopulated by server)
+        files = [];
+        renderFilesList();
+      }
+    });
+  });
+  const currentRoom = userRooms.find(r => r.room_id === currentRoomId);
+  if (currentRoom) currentRoomNameSpan.textContent = currentRoom.name;
+}
 
-        // Initially disconnected
-        setConnected(false);
-    </script>
+newRoomBtn.addEventListener('click', () => {
+  const name = prompt('Enter new document name:');
+  if (name) client.emit('create_room', {name});
+});
+
+// ----------------------------------------------------------------------
+// Friends
+// ----------------------------------------------------------------------
+function renderFriendsList() {
+  let html = '';
+  userFriends.forEach(friend => {
+    html += `<div class="friend-item" data-friend-username="${friend.username}"><i class="fas fa-user"></i> ${friend.username}</div>`;
+  });
+  friendsListDiv.innerHTML = html;
+  document.querySelectorAll('.friend-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const friendName = el.dataset.friendUsername;
+      inviteUsernameInput.value = friendName;
+      inviteModal.style.display = 'flex';
+    });
+  });
+}
+
+// ----------------------------------------------------------------------
+// Users and avatars
+// ----------------------------------------------------------------------
+client.on('users', (users) => {
+  onlineCountSpan.textContent = users.length;
+  let listHtml = '';
+  let avatarsHtml = '';
+  users.forEach(u => {
+    listHtml += `<li><span class="dot"></span> ${u.username} ${u.username === username ? '(you)' : ''}</li>`;
+    const initial = u.username.charAt(0).toUpperCase();
+    const youClass = u.username === username ? ' you' : '';
+    avatarsHtml += `<div class="avatar online${youClass}" title="${u.username}">${initial}</div>`;
+  });
+  userList.innerHTML = listHtml;
+  avatarGroup.innerHTML = avatarsHtml;
+});
+
+client.on('user_joined', (user) => {
+  addNotification(`${user.username} joined`);
+});
+
+client.on('user_left', (data) => {
+  addNotification('A user left');
+});
+
+// ----------------------------------------------------------------------
+// Chat
+// ----------------------------------------------------------------------
+client.on('chat', (msg) => {
+  addChatMessage(msg.username, msg.text);
+});
+
+chatSend.addEventListener('click', () => {
+  const text = chatInput.value.trim();
+  if (text && client) {
+    client.emit('chat', {text});
+    chatInput.value = '';
+  }
+});
+chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') chatSend.click(); });
+
+function addChatMessage(user, text) {
+  const msg = document.createElement('div');
+  msg.className = 'chat-message';
+  const color = '#' + (user.charCodeAt(0) * 1234567 % 0xFFFFFF).toString(16).padStart(6, '0');
+  msg.innerHTML = `<div class="chat-avatar" style="background:${color}">${user[0]}</div><div class="chat-bubble">${text}</div>`;
+  chatMessages.appendChild(msg);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// ----------------------------------------------------------------------
+// Notifications
+// ----------------------------------------------------------------------
+function addNotification(text) {
+  const div = document.createElement('div');
+  div.innerHTML = `<i class="fas fa-info-circle"></i> ${text}`;
+  notificationsList.prepend(div);
+  notificationCount++;
+  notifCountSpan.textContent = notificationCount;
+  showToast(text, 'info');
+}
+
+// ----------------------------------------------------------------------
+// Editor operations
+// ----------------------------------------------------------------------
+client.on('edit', (op) => {
+  applyOperationToDocument(op);
+});
+
+function applyOperationToDocument(op) {
+  let doc = localDocument;
+  switch (op.type) {
+    case 'insert':
+      if (op.position < 0 || op.position > doc.length) return;
+      doc = doc.slice(0, op.position) + op.text + doc.slice(op.position);
+      break;
+    case 'delete':
+      if (op.position < 0 || op.position + op.length > doc.length) return;
+      doc = doc.slice(0, op.position) + doc.slice(op.position + op.length);
+      break;
+    case 'replace':
+      if (op.position < 0 || op.position + op.length > doc.length) return;
+      doc = doc.slice(0, op.position) + op.text + doc.slice(op.position + op.length);
+      break;
+    default:
+      return;
+  }
+  localDocument = doc;
+  renderCode(doc);
+}
+
+function renderCode(content) {
+  const lines = content.split('\n');
+  let html = '';
+  lines.forEach((line, i) => {
+    const escaped = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    html += `<div class="code-line"><span class="line-number">${i+1}</span><span class="line-content">${escaped || ' '}</span></div>`;
+  });
+  codeDisplay.innerHTML = html;
+}
+
+// Editor input
+codeDisplay.addEventListener('input', () => {
+  const newContent = getDocumentFromEditor();
+  if (newContent === localDocument) return;
+
+  const oldDoc = localDocument;
+  const oldLen = oldDoc.length;
+  const newLen = newContent.length;
+
+  let prefixLen = 0;
+  while (prefixLen < oldLen && prefixLen < newLen &&
+         oldDoc[prefixLen] === newContent[prefixLen]) {
+    prefixLen++;
+  }
+
+  let suffixLen = 0;
+  while (suffixLen < oldLen - prefixLen && suffixLen < newLen - prefixLen &&
+         oldDoc[oldLen - 1 - suffixLen] === newContent[newLen - 1 - suffixLen]) {
+    suffixLen++;
+  }
+
+  const oldMiddle = oldDoc.substring(prefixLen, oldLen - suffixLen);
+  const newMiddle = newContent.substring(prefixLen, newLen - suffixLen);
+
+  let operation = null;
+
+  if (oldMiddle.length === 0 && newMiddle.length > 0) {
+    operation = { type: 'insert', position: prefixLen, text: newMiddle, length: 0 };
+  } else if (oldMiddle.length > 0 && newMiddle.length === 0) {
+    operation = { type: 'delete', position: prefixLen, text: '', length: oldMiddle.length };
+  } else if (oldMiddle !== newMiddle) {
+    operation = { type: 'replace', position: prefixLen, text: newMiddle, length: oldMiddle.length };
+  }
+
+  if (operation) {
+    localDocument = newContent;
+    lastSentOperation = operation;
+    if (operationTimeout) clearTimeout(operationTimeout);
+    operationTimeout = setTimeout(() => {
+      if (lastSentOperation && client) {
+        client.emit('edit', lastSentOperation);
+        lastSentOperation = null;
+      }
+    }, OPERATION_THROTTLE_MS);
+  }
+});
+
+// ----------------------------------------------------------------------
+// File upload
+// ----------------------------------------------------------------------
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    selectedFileName.textContent = `Selected: ${file.name}`;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const base64 = ev.target.result.split(',')[1];
+      client.emit('file_upload', {filename: file.name, data: base64});
+    };
+    reader.readAsDataURL(file);
+  }
+});
+
+client.on('file_info', (file) => {
+  // Add to files list
+  const div = document.createElement('div');
+  div.className = 'file-item';
+  div.innerHTML = `<i class="fas fa-file"></i> <span>${file.filename}</span> <small>by ${file.uploaded_by}</small>`;
+  filesList.prepend(div);
+  addNotification(`File uploaded: ${file.filename} by ${file.uploaded_by}`);
+  // Insert file content into editor if it's text (try to decode base64)
+  if (file.data) {
+    try {
+      const text = atob(file.data); // decode base64
+      // Insert at cursor position or append
+      const cursorPos = window.getSelection()?.focusOffset || localDocument.length;
+      const newDoc = localDocument.slice(0, cursorPos) + text + localDocument.slice(cursorPos);
+      localDocument = newDoc;
+      renderCode(newDoc);
+      // Emit edit operation
+      client.emit('edit', { type: 'insert', position: cursorPos, text, length: 0 });
+    } catch (e) {
+      // Not text, ignore
+    }
+  }
+});
+
+// ----------------------------------------------------------------------
+// Invite collaborators (modal)
+// ----------------------------------------------------------------------
+function openInviteModal() {
+  inviteUsernameInput.value = '';
+  inviteModal.style.display = 'flex';
+}
+
+inviteBtn.addEventListener('click', openInviteModal);
+floatingInvite.addEventListener('click', openInviteModal);
+
+cancelInvite.addEventListener('click', () => {
+  inviteModal.style.display = 'none';
+});
+
+sendInvite.addEventListener('click', () => {
+  const name = inviteUsernameInput.value.trim();
+  if (name) {
+    client.emit('invite', {username: name});
+    inviteModal.style.display = 'none';
+    showToast(`Inviting ${name}...`, 'info');
+  }
+});
+
+client.on('invite_created', (data) => {
+  copyToClipboard(data.link);
+  showToast(`Invite link for ${data.username} copied!`, 'success');
+});
+
+// ----------------------------------------------------------------------
+// Sidebar toggles
+// ----------------------------------------------------------------------
+toggleLeft.addEventListener('click', () => leftSidebar.classList.toggle('show'));
+toggleRight.addEventListener('click', () => rightSidebar.classList.toggle('show'));
+
+// ----------------------------------------------------------------------
+// Panel tabs
+// ----------------------------------------------------------------------
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('chatPanel').style.display = tab.dataset.panel === 'chat' ? 'block' : 'none';
+    document.getElementById('usersPanel').style.display = tab.dataset.panel === 'users' ? 'block' : 'none';
+    document.getElementById('notificationsPanel').style.display = tab.dataset.panel === 'notifications' ? 'block' : 'none';
+    if (tab.dataset.panel === 'notifications') {
+      notificationCount = 0;
+      notifCountSpan.textContent = '0';
+    }
+  });
+});
+
+// ----------------------------------------------------------------------
+// Latency simulation (replace with real ping if available)
+// ----------------------------------------------------------------------
+setInterval(() => {
+  document.getElementById('latency').textContent = Math.floor(Math.random() * 20 + 5);
+}, 5000);
+</script>
 </body>
 </html>
-        

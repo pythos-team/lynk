@@ -5,10 +5,10 @@ Pure Python, standard library only.
 Features (now with AUTO protocol – TCP+UDP concurrently):
 - HTTP routing with path parameters and method shortcuts
 - Route groups with prefixes and middleware
-- WebSocket event handling (RFC6455) with fragmentation and binary support
+- WebSocket event handling (RFC6455) with fragmentation, binary and binary event support
 - UDP datagram server (protocol="UDP") – each datagram is a JSON message with a "path"
 - **AUTO mode**: runs TCP (HTTP/WebSocket) and UDP on the same port simultaneously
-- Client‑ID token for UDP rate limiting (falls back to IP:port)
+- Client‑ID token for UDP rate limiting
 - Max payload size enforcement for UDP
 - Middleware and room-based pub/sub
 - Static file serving with streaming
@@ -23,6 +23,8 @@ Features (now with AUTO protocol – TCP+UDP concurrently):
 - Clean response API (redirect, json, file streaming, abort)
 - Integrated logging to soketDB (HTTP, WebSocket, runtime) with auto‑sync or manual control
 - Distributed database query API (run queries on any registered soketDB instance)
+- Enhanced file serving: custom headers, attachment downloads, cache control, last-modified
+- Binary event protocol for live streaming (server-side send_binary_event, on_binary_event decorator)
 """
 
 import asyncio
@@ -37,47 +39,69 @@ import socket
 import struct
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 import urllib.parse
+import ssl
 from collections import deque, defaultdict
 from contextvars import ContextVar
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, Union, Pattern
+import sys
 # if soketdb is inside lynkio/
 from lynkio.soketdb import database, env   # <-- soketDB integration
 
-# JAVASCRIPT client (unchanged)
+# JAVASCRIPT client (enhanced with binary events, tasks, scheduling)
 CLIENT_JS = """
-//Lynkio javascript CLIENT
+// Lynkio Enhanced JavaScript Client - with binary events, tasks, scheduling
 class LynkClient {
-    constructor(url) {
+    constructor(url, options = {}) {
         this.url = url;
         this.ws = null;
         this.handlers = {};
         this.binaryHandlers = [];
+        this.binaryEventHandlers = {};
         this.connectionPromise = null;
         this._connectResolve = null;
         this._connectReject = null;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 10;
-        this.reconnectDelay = 1000; // initial delay 1 second
+        this.maxReconnectAttempts = options.maxReconnectAttempts || 10;
+        this.reconnectDelay = options.reconnectDelay || 1000;
         this.shouldReconnect = true;
+        this._tasks = [];
     }
 
     connect() {
-        // If already connecting or connected, return existing promise
         if (this.connectionPromise) return this.connectionPromise;
-
         this.connectionPromise = new Promise((resolve, reject) => {
             this._connectResolve = resolve;
             this._connectReject = reject;
         });
+        this._doConnect();
+        return this.connectionPromise;
+    }
 
+    _doConnect() {
         this.ws = new WebSocket(this.url);
         this.ws.binaryType = 'arraybuffer';
 
         this.ws.onmessage = (event) => {
             if (event.data instanceof ArrayBuffer) {
                 const data = new Uint8Array(event.data);
+                // Try to parse binary event header
+                let eventName = null;
+                let payload = data;
+                if (data.length >= 2) {
+                    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+                    const nameLen = view.getUint16(0, false); // big-endian
+                    if (data.length >= 2 + nameLen) {
+                        const nameBytes = data.slice(2, 2 + nameLen);
+                        eventName = new TextDecoder().decode(nameBytes);
+                        payload = data.slice(2 + nameLen);
+                    }
+                }
+                if (eventName && this.binaryEventHandlers[eventName]) {
+                    this.binaryEventHandlers[eventName](payload);
+                }
+                // Call all generic binary handlers
                 this.binaryHandlers.forEach(handler => handler(data));
             } else {
                 try {
@@ -93,7 +117,7 @@ class LynkClient {
         };
 
         this.ws.onopen = () => {
-            console.log('WebSocket connected');
+            console.log('Lynk WebSocket connected');
             this.reconnectAttempts = 0;
             if (this._connectResolve) {
                 this._connectResolve();
@@ -103,8 +127,7 @@ class LynkClient {
         };
 
         this.ws.onclose = (event) => {
-            console.log(`WebSocket closed (code: ${event.code})`);
-            // If connection was never established, reject the promise
+            console.log(`Lynk WebSocket closed (code: ${event.code})`);
             if (this._connectReject) {
                 this._connectReject(new Error('Connection closed before open'));
                 this._connectResolve = null;
@@ -117,31 +140,24 @@ class LynkClient {
                 const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts);
                 this.reconnectAttempts++;
                 console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-                setTimeout(() => this.connect(), delay);
+                setTimeout(() => this._doConnect(), delay);
             } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
                 console.log('Max reconnect attempts reached');
             }
         };
 
         this.ws.onerror = (err) => {
-            console.error('WebSocket error', err);
-            // If connection promise is still pending, reject it
+            console.error('Lynk WebSocket error', err);
             if (this._connectReject) {
                 this._connectReject(err);
                 this._connectResolve = null;
                 this._connectReject = null;
             }
         };
-
-        return this.connectionPromise;
     }
 
     on(event, callback) {
         this.handlers[event] = callback;
-    }
-
-    onBinary(callback) {
-        this.binaryHandlers.push(callback);
     }
 
     emit(event, data) {
@@ -149,6 +165,20 @@ class LynkClient {
             this.ws.send(JSON.stringify({ event, data }));
         } else {
             console.warn('WebSocket not open, cannot emit', event);
+        }
+    }
+
+    onBinary(callback) {
+        this.binaryHandlers.push(callback);
+    }
+
+    onBinary(eventName, callback) {
+        if (typeof eventName === 'string') {
+            // registering a named binary event handler
+            this.binaryEventHandlers[eventName] = callback;
+        } else {
+            // legacy: treat as generic binary handler
+            this.binaryHandlers.push(eventName);
         }
     }
 
@@ -160,31 +190,59 @@ class LynkClient {
         }
     }
 
-    /**
-     * Send a message that will be routed as a UDP datagram.
-     * The server must have a WebSocket handler for the "__udp" event
-     * that forwards the message to its UDP router.
-     * @param {string} path - The UDP route path (e.g., "/ping")
-     * @param {object} data - The payload to send
-     */
-    sendUdp(path, data) {
-        this.emit('__udp', { path, data });
+    sendBinaryEvent(eventName, data) {
+        const nameBytes = new TextEncoder().encode(eventName);
+        const header = new Uint8Array(2 + nameBytes.length);
+        const view = new DataView(header.buffer);
+        view.setUint16(0, nameBytes.length, false); // big-endian
+        header.set(nameBytes, 2);
+        const payload = data instanceof Uint8Array ? data : new Uint8Array(data);
+        const combined = new Uint8Array(header.length + payload.length);
+        combined.set(header);
+        combined.set(payload, header.length);
+        this.sendBinary(combined.buffer);
+    }
+
+    createTask(fn, interval = 0) {
+        let id;
+        if (interval > 0) {
+            id = setInterval(fn, interval);
+        } else {
+            id = setTimeout(fn, 0);
+        }
+        this._tasks.push(id);
+        return id;
+    }
+
+    scheduleTask(interval, fn) {
+        return this.createTask(fn, interval);
+    }
+
+    clearTask(id) {
+        clearInterval(id);
+        clearTimeout(id);
+        const idx = this._tasks.indexOf(id);
+        if (idx > -1) this._tasks.splice(idx, 1);
     }
 
     joinRoom(room) {
         this.emit('join', { room });
     }
-
     leaveRoom(room) {
         this.emit('leave', { room });
     }
-
     setSession(key, value) {
         this.emit('set_session', { key, value });
     }
 
+    sendUdp(path, data) {
+        this.emit('__udp', { path, data });
+    }
+
     close() {
-        this.shouldReconnect = false; // prevent reconnection
+        this.shouldReconnect = false;
+        this._tasks.forEach(id => { clearInterval(id); clearTimeout(id); });
+        this._tasks = [];
         if (this.ws) {
             this.ws.close();
             this.ws = null;
@@ -193,16 +251,17 @@ class LynkClient {
         this._connectResolve = null;
         this._connectReject = null;
     }
-}"""
+}
+"""
 
 # ----------------------------------------------------------------------
-# Global registry of database instances (unchanged)
+# Global registry of database instances
 # ----------------------------------------------------------------------
 _databases: Dict[str, database] = {}
 
 # ----------------------------------------------------------------------
-# Exceptions (unchanged)
-# ---------------------------------------------------------------------
+# Exceptions
+# ----------------------------------------------------------------------
 class StopProcessing(Exception):
     """Raised in middleware to stop further processing of an event."""
     pass
@@ -343,13 +402,25 @@ class Request:
             self._form = dict(urllib.parse.parse_qsl(self.body.decode()))
         return self._form
 
+    @classmethod
+    def create_minimal(cls, method: str, path: str, headers: Dict[str, str], client_ip: str) -> 'Request':
+        """Create a minimal request object (e.g., for early error logging)."""
+        req = cls(method, path, headers, b"", client_ip)
+        req.start_time = time.time()
+        req.request_id = str(uuid.uuid4())
+        return req
+
 
 def http_response(status_code: int, content_type: str, body: Union[str, bytes]) -> bytes:
     """Build an HTTP response."""
     if isinstance(body, str):
         body = body.encode()
     status_text = {
+        101: "Switching Protocols",
         200: "OK",
+        201: "Created",
+        202: "Accepted",
+        204: "No Content",
         302: "Found",
         400: "Bad Request",
         403: "Forbidden",
@@ -454,12 +525,36 @@ def json_response(data: Any, status: int = 200) -> Dict[str, Any]:
     return {"_json": data, "_status": status}
 
 class FileResponse:
-    """Streaming file response."""
-    def __init__(self, filepath: str, chunk_size: int = 8192, content_type: Optional[str] = None):
+    """Streaming file response with advanced headers."""
+    def __init__(
+        self,
+        filepath: str,
+        chunk_size: int = 8192,
+        content_type: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+        as_attachment: bool = False,
+        attachment_filename: Optional[str] = None,
+        cache_control: Optional[str] = None,
+        last_modified: Optional[float] = None,
+    ):
         self.filepath = filepath
         self.chunk_size = chunk_size
         self.content_type = content_type or mimetypes.guess_type(filepath)[0] or "application/octet-stream"
         self.size = os.path.getsize(filepath)
+        self.headers = headers or {}
+        self.as_attachment = as_attachment
+        self.attachment_filename = attachment_filename or os.path.basename(filepath)
+        self.cache_control = cache_control
+        # Last-Modified: use provided timestamp or file's mtime
+        self.last_modified = last_modified or os.path.getmtime(filepath)
+        # Add Last-Modified header automatically unless overridden
+        if "Last-Modified" not in self.headers:
+            # RFC 7231 requires HTTP-date format (GMT)
+            self.headers["Last-Modified"] = datetime.fromtimestamp(self.last_modified, tz=timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+        if self.cache_control:
+            self.headers["Cache-Control"] = self.cache_control
+        if self.as_attachment:
+            self.headers["Content-Disposition"] = f'attachment; filename="{self.attachment_filename}"'
 
     async def __aiter__(self):
         with open(self.filepath, "rb") as f:
@@ -477,6 +572,34 @@ class StreamingResponse:
         async for chunk in self.generator:
             yield chunk
 
+
+def _compile_route_path(path: str) -> str:
+    """
+    Convert a route path with placeholders like '/user/<id>/post/{pid}'
+    into a regex pattern that captures named groups.
+    Supports both <name> and {name} syntax.
+    If the path already contains regex syntax (like (?P<...>)), it is returned unchanged.
+    """
+    # If it already looks like a regex (contains ?P< or parentheses), assume it's raw.
+    if re.search(r'\(\?P<[^>]+>', path) or '(' in path:
+        return path
+
+    # Escape the whole path first (this will escape { and } as well)
+    pattern = re.escape(path)
+
+    # Find all placeholders: both <name> and {name}
+    placeholders = re.findall(r'<([^>]+)>|\{([^}]+)\}', path)
+    # placeholders is a list of tuples: (match_from_angle, match_from_curly)
+    for angle, curly in placeholders:
+        name = angle or curly
+        # The escaped version of the placeholder
+        if angle:
+            escaped_placeholder = re.escape(f'<{name}>')
+        else:
+            escaped_placeholder = re.escape(f'{{{name}}}')
+        # Replace with regex named group
+        pattern = pattern.replace(escaped_placeholder, f'(?P<{name}>[^/]+)')
+    return f'^{pattern}$'
 
 # ----------------------------------------------------------------------
 # Route group
@@ -496,6 +619,7 @@ class RouteGroup:
     def route(self, path: str, methods: Optional[List[str]] = None):
         """Register a route within this group."""
         full_path = self.prefix + path
+        pattern = re.compile(_compile_route_path(full_path))
         def decorator(func):
             # Wrap the handler to run group middleware first
             async def wrapped(req, *args, **kwargs):
@@ -508,7 +632,7 @@ class RouteGroup:
                     if resp is not None:
                         return resp
                 return await func(req, *args, **kwargs)
-            self.app.route(full_path, methods)(wrapped)
+            self.app._http_routes.append((pattern, wrapped, set(methods or ["GET"])))
             return wrapped
         return decorator
 
@@ -554,8 +678,9 @@ def cors_middleware(allowed_origins: Optional[List[str]] = None, allow_credentia
         req._cors_credentials = allow_credentials
         return None
     return middleware
+
 # ======================================================================
-# UDP Protocol Handler (unchanged)
+# UDP Protocol Handler
 # ======================================================================
 class UDPProtocol(asyncio.DatagramProtocol):
     def __init__(self, app: 'Lynk'):
@@ -575,6 +700,32 @@ class UDPProtocol(asyncio.DatagramProtocol):
 
     def connection_lost(self, exc):
         self.app._logger.info("UDP server stopped")
+
+
+class FetchResponse:
+    """Response object returned by Lynk.fetch()."""
+    def __init__(self, status_code: int, headers: Dict[str, str], content: bytes):
+        self.status_code = status_code
+        self.headers = headers
+        self._content = content
+
+    async def json(self) -> Any:
+        """Parse response body as JSON."""
+        import json
+        return json.loads(self._content.decode('utf-8'))
+
+    async def text(self) -> str:
+        """Return response body as text."""
+        return self._content.decode('utf-8')
+
+    @property
+    def content(self) -> bytes:
+        """Return raw response body."""
+        return self._content
+
+    def __repr__(self):
+        return f"<FetchResponse {self.status_code}>"
+
 
 # ----------------------------------------------------------------------
 # Lynk – main engine (HTTP + WebSocket + UDP + AUTO)
@@ -623,6 +774,7 @@ class Lynk:
         self._rooms: Dict[str, Set[str]] = {}
         self._handlers: Dict[str, Callable[[Connection, Any], Awaitable[None]]] = {}
         self._binary_handlers: List[Callable[[Connection, bytes], Awaitable[None]]] = []
+        self._binary_event_handlers: Dict[str, Callable[[Connection, bytes], Awaitable[None]]] = {}
         self._internal_handlers: Dict[
             str, List[Callable[[Optional[Connection], Optional[Any]], Awaitable[None]]]
         ] = {}
@@ -644,7 +796,7 @@ class Lynk:
         self._client_msg_times: Dict[str, deque] = defaultdict(lambda: deque(maxlen=rate_limit or 0))
 
         # Server state
-        self._tcp_server: Optional[asyncio.Server] = None          # renamed for clarity
+        self._tcp_server: Optional[asyncio.Server] = None
         self._udp_transport: Optional[asyncio.DatagramTransport] = None
         self._udp_protocol: Optional[UDPProtocol] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -675,9 +827,125 @@ class Lynk:
             return (CLIENT_JS, "application/javascript")
         self._http_routes.append((pattern, client_handler, {"GET"}))
         self._logger.info(f"Serving built‑in lynkio client.js at {self.client_path}")
+        
+    async def fetch(
+        self,
+        url: str,
+        method: str = "GET",
+        params: Optional[Dict[str, str]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        body: Optional[Union[str, bytes, Dict]] = None,
+        json: Optional[Any] = None,
+        timeout: float = 30.0,
+        verify_ssl = True,
+    ) -> FetchResponse:
+        """
+        Perform an HTTP request asynchronously.
+
+        :param url: Full URL (http:// or https://)
+        :param method: HTTP method (GET, POST, PUT, DELETE, etc.)
+        :param params: Query parameters as dict
+        :param headers: Custom headers as dict
+        :param body: Raw body (str or bytes)
+        :param json: JSON-serializable body (overrides body)
+        :param timeout: Timeout in seconds
+        :return: FetchResponse object
+        """
+        # Parse URL
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            raise ValueError("Only http and https are supported")
+
+        host = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+        path = parsed.path or '/'
+        if parsed.query:
+            path += '?' + parsed.query
+
+        # Add query parameters
+        if params:
+            query_string = urllib.parse.urlencode(params)
+            path += ('&' if '?' in path else '?') + query_string
+
+        # Prepare body
+        request_body = None
+        if json is not None:
+            import json as jsonlib
+            request_body = jsonlib.dumps(json).encode('utf-8')
+            if headers is None:
+                headers = {}
+            headers['Content-Type'] = 'application/json'
+        elif body is not None:
+            if isinstance(body, str):
+                request_body = body.encode('utf-8')
+            else:
+                request_body = body
+
+        # Build request
+        request_lines = [
+            f"{method} {path} HTTP/1.1",
+            f"Host: {host}",
+            "Connection: close",
+        ]
+        if headers:
+            for k, v in headers.items():
+                request_lines.append(f"{k}: {v}")
+        if request_body:
+            request_lines.append(f"Content-Length: {len(request_body)}")
+        request_lines.append("\r\n")
+        request = "\r\n".join(request_lines).encode()
+        if request_body:
+            request += request_body
+
+        # Connect and send
+        try:
+            if parsed.scheme == 'https':
+                if verify_ssl:
+                  ssl_context = ssl.create_default_context()
+                else:
+                  ssl_context = ssl._create_unverified_context()
+                reader, writer = await asyncio.open_connection(host, port, ssl=ssl_context)
+            else:
+                reader, writer = await asyncio.open_connection(host, port)
+
+            writer.write(request)
+            await writer.drain()
+
+            # Read response
+            response_data = await asyncio.wait_for(reader.read(), timeout)
+
+            writer.close()
+            await writer.wait_closed()
+
+            # Parse response
+            header_end = response_data.find(b'\r\n\r\n')
+            if header_end == -1:
+                raise ValueError("Invalid HTTP response")
+            header_section = response_data[:header_end].decode('utf-8')
+            body_section = response_data[header_end + 4:]
+
+            # Parse status line
+            lines = header_section.split('\r\n')
+            status_line = lines[0]
+            parts = status_line.split(' ')
+            status_code = int(parts[1]) if len(parts) > 1 else 0
+
+            # Parse headers
+            resp_headers = {}
+            for line in lines[1:]:
+                if ': ' in line:
+                    key, value = line.split(': ', 1)
+                    resp_headers[key.lower()] = value
+
+            return FetchResponse(status_code, resp_headers, body_section)
+
+        except asyncio.TimeoutError:
+            raise TimeoutError(f"Request timed out after {timeout}s")
+        except Exception as e:
+            raise RuntimeError(f"Fetch failed: {e}")
 
     # ------------------------------------------------------------------
-    # DATABASE WRAPPER (unchanged)
+    # DATABASE WRAPPER
     # ------------------------------------------------------------------
     def create_database(self, name: str = "lynkio_test_db",
                         create_log_table: bool = False,
@@ -729,7 +997,7 @@ class Lynk:
             return None
 
     # ------------------------------------------------------------------
-    # Distributed query API (UPDATED: now accepts optional params)
+    # Distributed query API (now accepts optional params)
     # ------------------------------------------------------------------
     async def query_database(self, db_name: str, query: str, params: Optional[Tuple] = None) -> Any:
         """
@@ -763,16 +1031,23 @@ class Lynk:
     # Core logging methods (auto‑sync) – adapted to soketDB syntax
     # ------------------------------------------------------------------
     async def _log_http(self, req: Request, status_code: int):
-        """Log an HTTP request/response if auto_sync_log is True."""
+        """Log an HTTP request/response: print to console and optionally to database."""
+        # Always print to console (info for 2xx/3xx, warning for errors)
+        response_time = time.time() - req.start_time
+        client_ip = req.client_ip or "unknown"
+        log_msg = f"HTTP {req.method} {req.path} -> {status_code} ({response_time:.3f}s) from {client_ip}"
+        if 200 <= status_code < 400:
+            self._logger.info(log_msg)
+        else:
+            self._logger.warning(log_msg)
+
+        # Database logging (if enabled)
         if not self._db or not self.auto_sync_log:
             return
-        response_time = time.time() - req.start_time
         user_agent = req.headers.get('user-agent', '')
-        # Generate id and timestamp
         log_id = str(uuid.uuid4())
         timestamp = datetime.now().isoformat()
 
-        # Parameterised INSERT (9 columns)
         query = """
             INSERT INTO http_logs (id, timestamp, method, path, status_code, client_ip, user_agent, response_time, request_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -905,9 +1180,16 @@ class Lynk:
         return decorator
 
     def on_binary(self, func: Callable[[Connection, bytes], Awaitable[None]]):
-        """Register a handler for binary WebSocket messages."""
+        """Register a handler for generic binary WebSocket messages."""
         self._binary_handlers.append(func)
         return func
+
+    def on_binary_event(self, event_name: str):
+        """Register a handler for named binary events (sent via send_binary_event on client)."""
+        def decorator(func: Callable[[Connection, bytes], Awaitable[None]]):
+            self._binary_event_handlers[event_name] = func
+            return func
+        return decorator
 
     def on_internal(self, event: str):
         """Register an internal event handler."""
@@ -928,7 +1210,7 @@ class Lynk:
         if methods is None:
             methods = ["GET"]
         methods = {m.upper() for m in methods}
-        pattern = re.compile(f"^{path}$")
+        pattern = re.compile(_compile_route_path(path))
 
         def decorator(func: Callable[[Request], Awaitable[Any]]):
             self._http_routes.append((pattern, func, methods))
@@ -955,7 +1237,7 @@ class Lynk:
         return self.route(path, methods=["UDP"])
 
     # ------------------------------------------------------------------
-    # Public API: Unified route (HTTP + WebSocket) – unchanged
+    # Public API: Unified route (HTTP + WebSocket)
     # ------------------------------------------------------------------
     def both(self, path: str):
         """Register a handler for both HTTP GET and WebSocket events on the same path."""
@@ -990,7 +1272,8 @@ class Lynk:
                 abort(403, "Forbidden")
             if not os.path.exists(full_path) or os.path.isdir(full_path):
                 abort(404, "Not Found")
-            return FileResponse(full_path)
+            # Use enhanced send_file with default settings
+            return send_file(full_path, base_dir="")
 
         self._http_routes.append((pattern, serve_static, {"GET"}))
 
@@ -1076,6 +1359,17 @@ class Lynk:
                                               data=data, size=len(message))
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def send_binary_event(self, client_id: str, event_name: str, data: bytes) -> None:
+        """Send a named binary event to a specific client (for live streaming)."""
+        client = self._clients.get(client_id)
+        if not client or client.closed:
+            return
+        name_bytes = event_name.encode()
+        header = struct.pack("!H", len(name_bytes)) + name_bytes
+        payload = header + data
+        await client.send(payload, text=False)
+        await self._log_websocket(client_id, 'out', event=f'binary:{event_name}', size=len(payload))
 
     def join_room(self, client_id: str, room: str) -> None:
         """Add a client to a room."""
@@ -1192,30 +1486,36 @@ class Lynk:
         await self._log_runtime('INFO', 'Server stopped', 'server')
 
     def run(self) -> None:
-        """Run the server until interrupted (blocking call)."""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        # Signal handlers for graceful shutdown
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(self.stop()))
-
+      loop = asyncio.new_event_loop()
+      asyncio.set_event_loop(loop)
+      
+      # Signal handlers for graceful shutdown (skip if not supported)
+      for sig in (signal.SIGINT, signal.SIGTERM):
         try:
-            loop.run_until_complete(self._run_forever())
-        finally:
-            loop.close()
+          loop.add_signal_handler(sig, lambda: asyncio.create_task(self.stop()))
+        except NotImplementedError:
+          # On Windows, signal handlers are not supported.
+          pass
 
+      try:
+        loop.run_until_complete(self._run_forever())
+      except KeyboardInterrupt:
+        # On Windows, the signal handler may not work, so handle manually
+        loop.run_until_complete(self.stop())
+      finally:
+        loop.close()
+        
     async def _run_forever(self) -> None:
-        await self.start()
-        try:
-            await self._shutdown_event.wait()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            await self.stop()
+      await self.start()
+      try:
+        await self._shutdown_event.wait()
+      except asyncio.CancelledError:
+        pass
+      finally:
+        await self.stop()
 
     # ------------------------------------------------------------------
-    # Heartbeat (unchanged)
+    # Heartbeat
     # ------------------------------------------------------------------
     async def _heartbeat(self):
         """Periodically ping clients and close unresponsive ones."""
@@ -1239,13 +1539,10 @@ class Lynk:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         """Handle a new client connection – either HTTP or WebSocket upgrade."""
-        # Check connection limit
+        # Check connection limit (create minimal request for logging)
         if self.max_connections and len(self._clients) >= self.max_connections:
-            response = http_response(503, "text/plain", "Server busy")
-            writer.write(response)
-            await writer.drain()
-            writer.close()
-            await writer.wait_closed()
+            req = Request.create_minimal("UNKNOWN", "/", {}, "")
+            await self._send_http_error(writer, 503, "Server busy", req)
             return
 
         # Get client IP
@@ -1266,7 +1563,8 @@ class Lynk:
             # Parse request line
             parts = request_line.decode().strip().split()
             if len(parts) < 3:
-                await self._send_http_error(writer, 400, "Bad Request", None)  # no req yet
+                req = Request.create_minimal("UNKNOWN", "/", {}, client_ip)
+                await self._send_http_error(writer, 400, "Bad Request", req)
                 return
             method, path, version = parts[0], parts[1], parts[2]
 
@@ -1277,29 +1575,30 @@ class Lynk:
                 if line == b"\r\n":
                     break
                 if not line:
-                    await self._send_http_error(writer, 400, "Bad Request", None)
+                    req = Request.create_minimal(method, path, headers, client_ip)
+                    await self._send_http_error(writer, 400, "Bad Request", req)
                     return
                 try:
                     key, value = line.decode().strip().split(":", 1)
                     headers[key.strip().lower()] = value.strip()
                 except ValueError:
-                    await self._send_http_error(writer, 400, "Malformed header", None)
+                    req = Request.create_minimal(method, path, headers, client_ip)
+                    await self._send_http_error(writer, 400, "Malformed header", req)
                     return
+
+            # Create minimal request now (body not read yet)
+            req = Request.create_minimal(method, path, headers, client_ip)
 
             # Check for WebSocket upgrade
             if headers.get("upgrade", "").lower() == "websocket":
                 # Origin validation
                 origin = headers.get("origin", "")
                 if self.allowed_origins and origin not in self.allowed_origins:
-                    response = http_response(403, "text/plain", "Origin not allowed")
-                    writer.write(response)
-                    await writer.drain()
-                    writer.close()
-                    await writer.wait_closed()
+                    await self._send_http_error(writer, 403, "Origin not allowed", req)
                     return
                 # Handle WebSocket handshake and then messages
                 try:
-                    await self._websocket_handshake(reader, writer, headers)
+                    await self._websocket_handshake(reader, writer, headers, req)
                 except Exception as e:
                     self._logger.warning(f"WebSocket handshake failed: {e}")
                     writer.close()
@@ -1309,14 +1608,11 @@ class Lynk:
             # Handle HTTP request
             content_length = int(headers.get("content-length", 0))
             if content_length > self.max_body_size:
-                await self._send_http_error(writer, 413, "Request entity too large", None)
+                await self._send_http_error(writer, 413, "Request entity too large", req)
                 return
             body = await reader.read(content_length) if content_length > 0 else b""
-            req = Request(method, path, headers, body, client_ip)
+            req.body = body  # update the request body
 
-            # Add logging attributes
-            req.start_time = time.time()
-            req.request_id = str(uuid.uuid4())
             self.request_id_ctx.set(req.request_id)
 
             # Run HTTP middleware
@@ -1359,11 +1655,9 @@ class Lynk:
 
         except Exception as e:
             self._logger.exception("Unhandled error in connection handler")
-            try:
-                # Cannot log because we might not have req
-                await self._send_http_error(writer, 500, "Internal Server Error", None)
-            except:
-                pass
+            if 'req' not in locals():
+                req = Request.create_minimal("UNKNOWN", "/", {}, client_ip)
+            await self._send_http_error(writer, 500, "Internal Server Error", req)
         finally:
             # If keep-alive is not enabled, close the connection
             if not self.enable_keep_alive or headers.get("connection", "").lower() != "keep-alive":
@@ -1377,7 +1671,8 @@ class Lynk:
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
-        headers: Dict[str, str]
+        headers: Dict[str, str],
+        req: Request
     ) -> None:
         """Perform WebSocket handshake and then enter message loop."""
         key = headers.get("sec-websocket-key")
@@ -1393,6 +1688,10 @@ class Lynk:
         )
         writer.write(response.encode())
         await writer.drain()
+
+        # Log the successful handshake (status 101)
+        await self._log_http(req, 101)
+
         self._logger.debug("WebSocket handshake successful")
 
         # Create client and start message loop
@@ -1407,10 +1706,10 @@ class Lynk:
         except (ConnectionError, asyncio.CancelledError):
             pass
         finally:
-            if client.id in self._clients:
-                del self._clients[client.id]
             for room in list(client.rooms):
                 self.leave_room(client.id, room)
+            if client.id in self._clients:
+                del self._clients[client.id]
             self._logger.info(f"WebSocket client disconnected: {client.id}")
             await self._log_websocket(client.id, 'out', event='disconnect')
             self._dispatch_internal("disconnect", client)
@@ -1526,7 +1825,7 @@ class Lynk:
         try:
             data = json.loads(message)
             event = data.get("event")
-            payload = data.get("data", {})
+            payload_data = data.get("data", {})
         except json.JSONDecodeError:
             await client.close(1007, "Invalid JSON")
             return
@@ -1534,18 +1833,18 @@ class Lynk:
         if not isinstance(event, str):
             return
 
-        self._logger.debug(f"Received event '{event}' from {client.id} with payload: {payload}")
+        self._logger.debug(f"Received event '{event}' from {client.id} with payload: {payload_data}")
 
         # Log incoming message
         await self._log_websocket(client.id, 'in', event=event,
-                                  data=payload, size=len(message))
+                                  data=payload_data, size=len(message))
 
         # Run middleware chain
         for i, middleware in enumerate(self._middleware):
             try:
-                result = await middleware(client, event, payload)
+                result = await middleware(client, event, payload_data)
                 if result is not None:
-                    payload = result
+                    payload_data = result
             except StopProcessing:
                 return
             except Exception:
@@ -1555,18 +1854,36 @@ class Lynk:
         handler = self._handlers.get(event)
         if handler:
             try:
-                await handler(client, payload)
+                await handler(client, payload_data)
             except Exception:
                 self._logger.exception(f"Handler error for event {event}")
 
-        self._dispatch_internal("message", client, {"event": event, "data": payload})
+        self._dispatch_internal("message", client, {"event": event, "data": payload_data})
 
     async def _handle_websocket_binary(self, client: Connection, payload: bytes) -> None:
-        """Handle a binary WebSocket message."""
+        """Handle a binary WebSocket message, dispatching to binary event handlers and generic ones."""
         client.session["_last_active"] = time.time()
         # Log binary message
         await self._log_websocket(client.id, 'in', event='binary',
                                   data=payload, opcode=0x2, size=len(payload))
+
+        # Try to extract binary event name (header: 2-byte length + name)
+        event_name = None
+        remaining = payload
+        if len(payload) >= 2:
+            name_len = struct.unpack("!H", payload[:2])[0]
+            if len(payload) >= 2 + name_len:
+                event_name = payload[2:2+name_len].decode()
+                remaining = payload[2+name_len:]
+
+        # Dispatch to named binary handler if found
+        if event_name and event_name in self._binary_event_handlers:
+            try:
+                await self._binary_event_handlers[event_name](client, remaining)
+            except Exception:
+                self._logger.exception(f"Binary event handler error for {event_name}")
+
+        # Then call all generic binary handlers as before
         for handler in self._binary_handlers:
             try:
                 await handler(client, payload)
@@ -1620,10 +1937,7 @@ class Lynk:
         req.request_id = str(uuid.uuid4())
         self.request_id_ctx.set(req.request_id)
 
-        # Log incoming (if logging enabled)
-        await self._log_http(req, 0)  # status 0 indicates UDP
-
-        # 5. Run HTTP middleware (same as for HTTP)
+        # 5. Run HTTP middleware
         for mw in self._http_middleware:
             try:
                 resp = await mw(req)
@@ -1658,7 +1972,6 @@ class Lynk:
 
     async def _send_udp_response(self, addr: Tuple[str, int], result: Any, req: Request) -> None:
         """Convert handler result to a UDP datagram and send back."""
-        # Same as before, but we could include the original client_id in response if needed
         if isinstance(result, dict) and "_redirect" in result:
             response_data = {"status": result.get("_status", 302), "location": result["_redirect"]}
             payload = json.dumps(response_data).encode()
@@ -1702,7 +2015,7 @@ class Lynk:
         await self._log_http(req, code)
 
     # ------------------------------------------------------------------
-    # HTTP response helpers (unchanged)
+    # HTTP response helpers
     # ------------------------------------------------------------------
     async def _send_http_response(self, writer: asyncio.StreamWriter, result: Any, req: Request) -> None:
         """Convert handler result to HTTP response and send."""
@@ -1750,23 +2063,36 @@ class Lynk:
             await self._log_http(req, status)
             return
 
-        # Handle FileResponse (streaming)
+        # Handle FileResponse (streaming with custom headers)
         if isinstance(result, FileResponse):
-            headers = [
+            # Build base headers
+            base_headers = [
                 f"HTTP/1.1 200 OK",
                 f"Content-Type: {result.content_type}",
                 f"Content-Length: {result.size}",
                 "Connection: close",
             ]
+            # Merge custom headers (may override base ones)
+            headers = {}
+            for h in base_headers:
+                if h.startswith("HTTP/"):
+                    continue
+                key, val = h.split(":", 1)
+                headers[key.strip()] = val.strip()
+            headers.update(result.headers)
             # Add CORS if enabled
             if self.cors_allowed_origins:
                 origin = getattr(req, "_cors_origin", req.headers.get("origin", "*"))
                 if origin in self.cors_allowed_origins or "*" in self.cors_allowed_origins:
-                    headers.append(f"Access-Control-Allow-Origin: {origin}")
+                    headers["Access-Control-Allow-Origin"] = origin
                     if self.cors_allow_credentials:
-                        headers.append("Access-Control-Allow-Credentials: true")
-            headers.append("\r\n")
-            writer.write("\r\n".join(headers).encode())
+                        headers["Access-Control-Allow-Credentials"] = "true"
+            # Build response lines
+            response_lines = [f"HTTP/1.1 200 OK"]
+            for k, v in headers.items():
+                response_lines.append(f"{k}: {v}")
+            response_lines.append("\r\n")
+            writer.write("\r\n".join(response_lines).encode())
             await writer.drain()
             async for chunk in result:
                 writer.write(chunk)
@@ -1838,8 +2164,8 @@ class Lynk:
         # Log HTTP response
         await self._log_http(req, 200)
 
-    async def _send_http_error(self, writer: asyncio.StreamWriter, code: int, message: str, req: Optional[Request]) -> None:
-        """Send an HTTP error response."""
+    async def _send_http_error(self, writer: asyncio.StreamWriter, code: int, message: str, req: Request) -> None:
+        """Send an HTTP error response and log it."""
         response = http_response(code, "text/plain", message)
         try:
             writer.write(response)
@@ -1849,29 +2175,57 @@ class Lynk:
         finally:
             writer.close()
             await writer.wait_closed()
-            # Log HTTP error if we have a request object
+            # Log HTTP error with the provided request object
             if req:
                 await self._log_http(req, code)
 
 
 # ----------------------------------------------------------------------
-# send_file helper (returns a FileResponse for streaming)
+# send_file helper (enhanced)
 # ----------------------------------------------------------------------
-def send_file(filepath: str, base_dir: str = ".", content_type: Optional[str] = None) -> FileResponse:
+def send_file(
+    filepath: str,
+    base_dir: str = ".",
+    content_type: Optional[str] = None,
+    headers: Optional[Dict[str, str]] = None,
+    as_attachment: bool = False,
+    attachment_filename: Optional[str] = None,
+    cache_control: Optional[str] = None,
+    last_modified: Optional[float] = None,
+) -> FileResponse:
     """
-    Return a FileResponse that streams the file.
-    Raises FileNotFoundError if file does not exist or is a directory.
+    Return a FileResponse that streams a file with advanced options.
+
+    :param filepath: Relative path to the file (within base_dir or absolute if base_dir="")
+    :param base_dir: Base directory (default: current working directory). Set to "" for absolute paths.
+    :param content_type: Override MIME type.
+    :param headers: Additional HTTP headers as dict.
+    :param as_attachment: If True, force download with Content-Disposition.
+    :param attachment_filename: Filename used in Content-Disposition (defaults to base name of file).
+    :param cache_control: Cache-Control header value (e.g., "max-age=3600, public").
+    :param last_modified: Override Last-Modified timestamp (Unix timestamp).
+    :raises FileNotFoundError: If file does not exist or is a directory.
     """
-    full_path = os.path.join(base_dir, filepath)
+    if base_dir:
+        full_path = os.path.join(base_dir, filepath)
+    else:
+        full_path = filepath
     if not os.path.exists(full_path) or os.path.isdir(full_path):
         raise FileNotFoundError(f"File not found: {full_path}")
-    return FileResponse(full_path, content_type=content_type)
+    return FileResponse(
+        filepath=full_path,
+        content_type=content_type,
+        headers=headers,
+        as_attachment=as_attachment,
+        attachment_filename=attachment_filename,
+        cache_control=cache_control,
+        last_modified=last_modified,
+    )
 
 
 # ----------------------------------------------------------------------
 # Template rendering helper
 # ----------------------------------------------------------------------
-
 def render_template(template_name: str, context: Optional[Dict[str, Any]] = None, template_dir: str = "templates") -> str:
     """
     Render an HTML template with variable substitution.
@@ -1909,7 +2263,7 @@ def render_template(template_name: str, context: Optional[Dict[str, Any]] = None
 
 
 # ----------------------------------------------------------------------
-# CLI entry point (updated with --protocol AUTO)
+# CLI entry point (unchanged)
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
     import argparse

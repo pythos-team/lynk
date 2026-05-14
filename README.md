@@ -1,420 +1,514 @@
-```markdown
-## Lynkio
+## Lynkio – Pure‑Python Real‑Time Event Engine
 
-– Real‑time event engine with native HTTP routing
+Lynkio is a lightweight, high‑performance framework for building real‑time web applications with native HTTP routing, WebSockets (RFC6455), UDP datagram handling, and an AUTO mode that serves TCP (HTTP/WS) and UDP concurrently on the same port.
+It runs on Python 3.7+ and has no external dependencies – only the standard library. Optional integration with soketDB provides automatic logging and distributed database queries.
 
-
-Lynkio is a lightweight, pure‑Python framework for building real‑time web applications with native HTTP routing and event‑driven architecture. It runs on Python 3.7+ and has **no external dependencies** beyond the standard library (except optional integration with [soketDB](/soketdb) for logging but it's builtin on dependencies required, except you need cloud backups).
-
+## [Visit Lynkio Website](https://pythos-team.github.io/lynkio-doc/)
 ---
 
-## Features
+## ✨ Features
 
-- **Real‑time Event Engine** – Handle WebSocket connections, events, and notifications.
-
-- **Native HTTP Routing** – Full support for GET, POST, PUT, DELETE, PATCH, OPTIONS.
-
-- **Pub/Sub with Rooms** – Publish and subscribe to events across your application.
-
-- **Async‑Ready** – Fully compatible with Python’s `asyncio`.
-
-- **Middleware Support** – Add custom middleware for WebSocket events and HTTP requests.
-
-- **Plugin System** – Extend Lynk with reusable modules.
-
-- **Integrated Database Logging**
-
-–Automatically log HTTP, WebSocket, and runtime events to **soketDB** (optional).
-
-- **Distributed Query API** 
-
-– Query any registered soketDB instance asynchronously.
-
-- **Background Tasks & Scheduler**
-
-– Run periodic or one‑off background coroutines.
-
-- **CORS Support** 
-
-– Enable Cross‑Origin Resource Sharing with one line.
-
-- **Pure Python** 
-
-– No external dependencies (except soketDB for logging, which is optional).
+```text
+Category Capabilities
+HTTP Path parameters (/user/<id>), method shortcuts (GET, POST, PUT, DELETE, PATCH), route groups, middleware, file streaming, redirects, JSON responses, template rendering, static serving
+WebSocket Event‑driven messaging, fragmentation, binary frames, named binary events, automatic heartbeat (ping/pong), per‑client session storage
+UDP + AUTO UDP datagram routing (JSON messages), same port for HTTP/WS + UDP, token‑based rate limiting
+Rooms & Pub/Sub Join/leave rooms, batch emission, emit_to_room, get_room_clients
+Background @app.task (startup coroutines), @app.schedule(interval) (cron‑like periodic tasks)
+Database Built‑in soketDB integration: automatic logging of HTTP, WebSocket, runtime events. Distributed query API across any registered database
+Middleware WebSocket and HTTP middleware chains; group‑level middleware
+CORS One‑line CORS enable with allowed origins & credentials
+Plugin system Extend Lynkio via app.use(plugin)
+Client libraries Built‑in JavaScript client (served at /lynkio/client.js) + full async Python client
+Pure Python Zero extra dependencies – only asyncio and the standard library
 ```
-
 ---
 
-## Installation
+## 📦 Installation
 
 ```bash
-pip install lynkio
+pip install lynkio==1.2.7
 ```
 
-If you plan to use the integrated logging feature with some specific backup,:
+If you need cloud backups for soketDB (Hugging Face, AWS S3, Google Drive, Dropbox), install with extras:
 
 ```bash
-pip install lynkio[huggingface]
-
-available backups
-
-[ huggingface, aws, gdrive, dropbox ]
+pip install lynkio[huggingface]   # or [aws], [gdrive], [dropbox], or [all]
 ```
 
 ---
 
-## Quick Start
-
-Create a simple HTTP server:
+## 🚀 Quick Start (HTTP + WebSocket + UDP)
 
 ```python
 from lynkio import Lynk
 
-app = Lynk()
+app = Lynk(host="0.0.0.0", port=8765, protocol="AUTO", debug=True)
 
 @app.get("/")
 async def home(req):
-    return "Hello, Lynk!"
+    return "<h1>Hello Lynkio</h1>", "text/html"
+
+@app.on("ping")
+async def pong(client, data):
+    await client.send("pong")
+
+@app.udp("/sensor")
+async def sensor(req):
+    data = await req.json()
+    print(f"UDP datagram: {data}")
+    return {"status": "ok"}
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    app.run()
 ```
+
+Run with: python server.py
+Now you have a single server accepting HTTP, WebSocket connections, and UDP datagrams on port 8765.
 
 ---
 
+## 📡 HTTP Routing – Deep Dive
 
-## HTTP Routing
+Path parameters and methods
 
 ```python
-@app.get("/hello")
-async def hello(req):
-    return {"message": "Hello world"}
+@app.get("/users/<user_id>")
+async def get_user(req, user_id):
+    return {"user_id": user_id}
 
-@app.post("/data")
-async def post_data(req):
+@app.post("/items")
+async def create_item(req):
     data = await req.json()
-    return {"received": data}
+    return json_response({"id": 123, ...}, status=201)
 
-@app.route("/users/<user_id>", methods=["GET", "DELETE"])
-async def user_handler(req, user_id):
-    if req.method == "GET":
-        return {"user_id": user_id}
+@app.route("/posts/<post_id>", methods=["PUT", "DELETE"])
+async def modify_post(req, post_id):
+    if req.method == "PUT":
+        ...
     elif req.method == "DELETE":
-        # delete user...
-        return {"deleted": user_id}
+        ...
 ```
 
-## WebSocket Events
+## Response helpers
 
 ```python
-@app.on("chat")
-async def on_chat(client, data):
-    await app.emit_to_room("lobby", "broadcast", data)
+from lynkio import json_response, redirect, send_file, abort
 
-@app.on_binary
-async def on_binary(client, payload):
-    # echo binary back
-    await client.send(payload, text=False)
+@app.get("/old")
+async def old_route(req):
+    return redirect("/new", status=302)
 
-@app.middleware
-async def log_middleware(client, event, data):
-    print(f"Event {event} from {client.id}")
-    # optionally modify data
-    return data
+@app.get("/report")
+async def report(req):
+    return send_file("docs/summary.pdf", as_attachment=True, cache_control="max-age=3600")
+
+@app.get("/secret")
+async def secret(req):
+    if not req.headers.get("Authorization"):
+        abort(403, "Forbidden")
+    return "ok"
 ```
 
-## Integrated Database Logging
-
-Lynk can automatically log HTTP requests, WebSocket messages, and runtime events to a soketDB instance.
-
-## Enabling Database Logging
+## Route groups & middleware
 
 ```python
-app = Lynk(enable_database=True)
+api = app.group("/api/v1")
 
-# Create a database instance and the three log tables
-app.create_database(
-    name="my_app_logs",
-    create_log_table=True,   # creates wss_logs, http_logs, runtime_logs
-    auto_sync_log=True       # automatically insert logs
-)
+@api.get("/status")
+async def api_status(req):
+    return {"status": "running"}
 ```
 
-## Log Tables
-
-· http_logs: HTTP requests/responses.
-· wss_logs: WebSocket messages (both directions) and connection events.
-· runtime_logs: Server start/stop, scheduled task errors, and manual entries.
+## Static files & templates
 
 ```python
-Automatic Logging (when auto_sync_log=True)
+app.static("/static", "public")          # serve ./public
 
-· Every HTTP request (method, path, status, client IP, user‑agent, response time, request ID) is logged.
-· Every WebSocket connect, disconnect, text message, and binary message is logged.
-· Server start, stop, and any error in a scheduled task are logged.
+from lynkio import render_template
+@app.get("/welcome")
+async def welcome(req):
+    return render_template("index.html", {"name": "Lynkio"}, template_dir="templates")
 ```
-
-## Manual Logging
-
-You can insert custom log entries even when auto‑sync is off using add_log:
-
-```python
-await app.add_log('runtime', level='WARNING', message='Custom check', source='my_handler')
-```
-
-## Querying Logs (Distributed Query API)
-
-Lynk keeps a global registry of all created databases. You can run queries on any registered database asynchronously:
-
-```python
-# Inside an async handler
-logs = await app.query_database(
-    "my_app_logs",
-    "SELECT * FROM http_logs"
-)
-return json_response(logs)
-```
-
-The query_database method runs the query in a thread executor so it never blocks the event loop.
 
 ---
 
-## Full Chat Server Example with Logging
+## 🔌 WebSocket Events & Real‑time Messaging
 
-Below is a complete real‑time chat server demonstrating HTTP routes, WebSocket events, background tasks, scheduled tasks, static file serving, and integrated logging.
+Event handlers
 
 ```python
-import os
-import time
-import asyncio
-import logging
-from lynkio import Lynk, json_response, render_template
+@app.on("echo")
+async def echo(client, data):
+    await client.send(data)                     # send JSON back
 
-app = Lynk(
-    host="0.0.0.0",
-    port=8765,
-    rate_limit=20,
-    max_body_size=1024*1024,
-    debug=True,
-    enable_database=True
-)
+@app.on("set_name")
+async def set_name(client, data):
+    client.session["name"] = data["name"]       # per‑client session
+```
 
-# Create database with log tables
-app.create_database(
-    name="chat_logs",
-    create_log_table=True,
-    auto_sync_log=True
-)
+## Rooms (Pub/Sub)
 
-# Enable CORS
-app.enable_cors(allowed_origins=["*"], allow_credentials=True)
-
-# Serve main chat page
-@app.get("/")
-async def index(req):
-    return render_template("index.html", context={"title": "Lynk Chat"})
-
-# Serve static files
-app.static("/static", "static")
-
-# REST API group
-api = app.group("/api")
-
-@api.get("/rooms")
-async def list_rooms(req):
-    rooms = [{"name": r, "members": len(m)} for r, m in app._rooms.items()]
-    return json_response(rooms)
-
-@api.get("/room/<room_name>/members")
-async def room_members(req, room_name):
-    members = app.get_room_clients(room_name)
-    return json_response(list(members))
-
-# WebSocket events
+```python
 @app.on("join")
-async def on_join(client, data):
-    room = data.get("room", "lobby")
-    nickname = data.get("nickname", "Anonymous")
-    client.session["nickname"] = nickname
-    client.session["room"] = room
+async def join_room(client, data):
+    room = data["room"]
     app.join_room(client.id, room)
-    await app.emit_to_room(room, "user_joined", {"id": client.id, "nickname": nickname}, exclude=client.id)
-
-@app.on("leave")
-async def on_leave(client, data):
-    room = client.session.get("room")
-    if room:
-        nickname = client.session.get("nickname", "Anonymous")
-        app.leave_room(client.id, room)
-        await app.emit_to_room(room, "user_left", {"id": client.id, "nickname": nickname})
+    await app.emit_to_room(room, "system", f"{client.id} joined")
 
 @app.on("message")
-async def on_message(client, data):
+async def chat_msg(client, data):
     room = client.session.get("room")
     if room:
         await app.emit_to_room(room, "chat", {
             "from": client.id,
-            "nickname": client.session.get("nickname", "Anonymous"),
-            "text": data.get("text", "")
-        }, exclude=client.id)
+            "text": data["text"]
+        })
+```
 
-@app.on_binary
-async def on_binary(client, payload):
-    await client.send(payload, text=False)
+## Binary events (live streaming)
 
-# Background task
+```python
+# Send a named binary event to a client
+await app.send_binary_event(client_id, "video_frame", frame_bytes)
+
+# Receive named binary events
+@app.on_binary_event("audio")
+async def handle_audio(client, payload: bytes):
+    print(f"Received audio chunk: {len(payload)} bytes")
+    await app.send_binary_event(client.id, "audio_ack", b"OK")
+```
+
+## WebSocket middleware
+
+```python
+@app.middleware
+async def auth_mw(client, event, data):
+    if event == "admin" and not client.session.get("auth"):
+        raise StopProcessing        # reject event
+    return data                     # optionally mutate data
+```
+
+---
+
+## 📡 UDP & AUTO Mode
+
+Lynkio can run a UDP datagram server on the same port as HTTP/WebSocket (AUTO mode) or standalone.
+
+Registering UDP routes
+
+```python
+@app.udp("/log")
+async def udp_log(req):
+    payload = await req.json()
+    # payload = {"path": "/log", "data": {...}, "client_id": optional}
+    print(payload)
+    return {"status": "logged"}
+```
+
+Sending UDP datagrams from Python
+
+```python
+import socket, json
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+msg = json.dumps({"path": "/log", "data": {"temp": 22.5}, "client_id": "sensor1"})
+sock.sendto(msg.encode(), ("127.0.0.1", 8765))
+```
+
+Rate limiting for UDP is based on client_id (or IP:port if not provided). Set rate_limit in Lynk().
+
+---
+
+## 🧠 Background Tasks & Scheduler
+
+One‑time background task (starts with server)
+
+```python
 @app.task
-async def print_connections():
-    while True:
+async def cache_warmer():
+    while app._running:
+        await asyncio.sleep(60)
+        # refresh cache
+```
+
+## Periodic scheduled tasks
+
+```python
+@app.schedule(interval=10.0)   # seconds
+async def broadcast_time():
+    await app.emit("server_time", {"now": time.time()})
+```
+
+Scheduled tasks run in the background and are automatically cancelled during graceful shutdown.
+
+---
+
+## 🗄️ Database & Automatic Logging (soketDB)
+
+Lynkio ships with soketDB – a file‑based database with backup, caching, and async support. Enable it to automatically log HTTP requests, WebSocket messages, and runtime events.
+
+Enable database logging
+
+```python
+app = Lynk(enable_database=True)
+db = app.create_database(
+    name="myapp_logs",
+    create_log_table=True,   # creates http_logs, wss_logs, runtime_logs
+    auto_sync_log=True       # auto‑insert every request/event
+)
+```
+
+## Log tables
+
+· http_logs – method, path, status, client_ip, user_agent, response_time, request_id
+· wss_logs – direction, event, data size, opcode, client_id
+· runtime_logs – level, message, source
+
+## Manual logging
+
+```python
+await app.add_log("runtime", level="INFO", message="Custom event", source="auth")
+```
+
+## Distributed queries across any registered database
+
+```python
+# Inside any async handler
+rows = await app.query_database(
+    "myapp_logs",
+    "SELECT method, path FROM http_logs WHERE status_code = $1",
+    (200,)
+)
+for row in rows:
+    print(row)
+```
+
+---
+
+## 🔧 Middleware, CORS & Plugin System
+
+HTTP middleware
+
+```python
+async def my_http_middleware(req):
+    print(f"{req.method} {req.path}")
+    # return None to continue, or return bytes to short‑circuit
+    return None
+
+app._http_middleware.append(my_http_middleware)
+```
+
+## CORS (one line)
+
+```python
+app.enable_cors(allowed_origins=["https://example.com"], allow_credentials=True)
+```
+
+## Plugin system
+
+```python
+def metrics_plugin(app):
+    @app.get("/metrics")
+    async def metrics(req):
+        return {"active_clients": len(app._clients)}
+
+app.use(metrics_plugin)
+```
+
+---
+
+## 🌐 Clients
+
+Built‑in JavaScript client
+
+Set serve_client=True in Lynk() – the client is served at /lynkio/client.js:
+
+```html
+<script src="/lynkio/client.js"></script>
+<script>
+  const client = new LynkClient("ws://localhost:8765");
+  client.on("chat", msg => console.log(msg));
+  client.connect().then(() => {
+    client.joinRoom("general");
+    client.emit("chat", { room: "general", text: "hi" });
+    client.sendBinaryEvent("image", new Uint8Array([1,2,3]));
+  });
+</script>
+```
+
+## Full Python client
+
+```python
+from lynkio import LynkClient
+
+async def demo():
+    client = LynkClient("localhost", 8765)
+    await client.ws.connect()
+    client.on("greeting", lambda d: print(d))
+    await client.ws.emit("ping", "hello")
+
+    # HTTP client
+    status, headers, body = await client.http.get("/api/status")
+    print(status, body)
+
+    # UDP client
+    resp = await client.udp.send(b'{"path":"/ping"}')
+    print(resp)
+
+asyncio.run(demo())
+```
+
+---
+
+## 🧩 Complete Chat Server Example
+
+```python
+import asyncio, time, os
+from lynkio import Lynk, render_template
+
+app = Lynk(host="0.0.0.0", port=8765, protocol="AUTO", debug=True,
+           enable_database=True)
+app.create_database("chat_logs", create_log_table=True, auto_sync_log=True)
+app.enable_cors()
+
+@app.get("/")
+async def index(req):
+    return render_template("chat.html", {"title": "Lynk Chat"})
+
+app.static("/static", "static")
+
+@app.on("join")
+async def join(client, data):
+    room = data.get("room", "lobby")
+    name = data.get("name", "Anonymous")
+    client.session["name"] = name
+    client.session["room"] = room
+    app.join_room(client.id, room)
+    await app.emit_to_room(room, "system", f"{name} joined")
+
+@app.on("message")
+async def message(client, data):
+    room = client.session.get("room")
+    if room:
+        await app.emit_to_room(room, "chat", {
+            "from": client.session.get("name"),
+            "text": data["text"]
+        })
+
+@app.task
+async def stats_printer():
+    while app._running:
         await asyncio.sleep(10)
-        print(f"Active WebSocket connections: {len(app._clients)}")
-
-# Scheduled task every 30 seconds
-@app.schedule(30)
-async def broadcast_server_time():
-    await app.emit_to_room("time", "server_time", {"time": time.time()})
-
-# Plugin example
-def health_check_plugin(app):
-    @app.get("/health")
-    async def health(req):
-        return "OK"
-app.use(health_check_plugin)
-
-# Endpoint to view recent HTTP logs
-@app.get("/logs/http")
-async def get_http_logs(req):
-    logs = await app.query_database("chat_logs", "SELECT * FROM http_logs ORDER BY id DESC LIMIT 20")
-    return json_response(logs)
+        print(f"Clients: {len(app._clients)}")
 
 if __name__ == "__main__":
     os.makedirs("templates", exist_ok=True)
-    os.makedirs("static", exist_ok=True)
-    logging.basicConfig(level=logging.INFO)
     app.run()
 ```
 
 ---
 
-## API Reference (Summary)
+## 📖 API Reference (Summary)
 
-```python
-Lynk(**options)
+```text
+## Lynk(**options)
 
-· host, port – Server address.
-· max_payload_size, max_message_size – WebSocket frame limits.
-· max_body_size – Max HTTP body size.
-· max_connections – Max concurrent WebSocket clients.
-· rate_limit – Messages per second per client.
-· enable_database – Enable soketDB integration.
-· database_config – Configuration dict for database ie.
+Parameter Default Description
+host "0.0.0.0" Bind address
+port 8765 Port
+protocol "TCP" "TCP", "UDP", or "AUTO"
+max_payload_size 256*1024 Max WebSocket frame / UDP datagram
+max_message_size 1024*1024 Max fragmented WebSocket message
+max_body_size 1024*1024 Max HTTP body
+rate_limit None Messages/sec per client/UDP token
+enable_database False Enable soketDB logging
+serve_client False Serve built‑in JS client
 
-  default_config = {
-    'primary_storage': 'local, huggingface, aws, google_drive, dropbox',
-    'backup_enabled': True,
-    'auto_backup_hours': 24,
-    'query_cache_enabled': True,
-    'auto_sync': True,
-    'google_drive_enabled': False,
-    'huggingface_enabled': False,
-    'aws_s3_enabled': False,
-    'dropbox_enabled': False
-  }.
-```
+## Core methods
 
-## Database Methods
+· HTTP: @app.get, .post, .put, .delete, .patch, .route, .static, .group
+· WebSocket: @app.on(event), @app.on_binary, @app.on_binary_event(name), @app.middleware
+· UDP: @app.udp(path)
+· Rooms: join_room(), leave_room(), emit_to_room(), get_room_clients()
+· Broadcast: emit(event, data, client_id=None)
+· Background: @app.task, @app.schedule(interval)
+· Database: create_database(), query_database(), add_log()
+· Misc: enable_cors(), use(plugin), fetch(url, ...)
 
-```python
-· create_database(name, create_log_table=False, auto_sync_log=False) – Creates a soketDB instance, optionally creates log tables, and sets auto‑sync flag.
+## Request object
 
-· async add_log(table, **kwargs) – Manually insert a log entry into http, wss, or runtime table.
-· async query_database(db_name, query) – Execute a raw soketDB query on any registered database.
-```
-
-## HTTP Decorators
-
-```python
-· @app.get(path), @app.post(path), @app.put(path), @app.delete(path), @app.patch(path), @app.route(path, methods)
-
-· @app.static(prefix, directory) – Serve static files.
-```
-
-## WebSocket Decorators
-
-```python
-· @app.on(event) – Handle JSON messages with an event field.
-· @app.on_binary – Handle binary messages.
-· @app.on_internal(event) – Handle internal events (connect, disconnect, subscribe, unsubscribe, message).
-· @app.middleware – WebSocket middleware.
-
-## Actions
-
-· await app.emit(event, data, client_id=None) – Send to one client or broadcast to all if client.id is not specify.
-
-· await app.emit_to_room(room, event, data, exclude=None) – Send to all clients in a room.
-
-· app.join_room(client_id, room), app.leave_room(client_id, room)
-
-· app.get_room_clients(room) -> Set[str]
-```
-
-## Background Tasks
-
-```python
-· @app.task – Runs once when server starts.
-· @app.schedule(interval) – Runs periodically (in seconds).
-```
-
-## Response Helpers
-
-```python
-· json_response(data, status=200)
-· redirect(location, status=302)
-· send_file(filepath, base_dir=".", content_type=None) – Returns a streaming FileResponse.
-· render_template(template_name, context=None, template_dir="templates") – Basic template rendering.
-```
-
-## Request Object
-
-```python
 · req.method, req.path, req.headers, req.body, req.client_ip
-· await req.json() – Parse JSON body.
-· await req.form() – Parse URL‑encoded form.
-· req.query_params – Dict of query string parameters.
-· req.cookies – Parsed cookies.
+· await req.json(), await req.form(), req.query_params, req.cookies
+
+## Response helpers
+· json_response(data, status), redirect(location, status), abort(code, message)
+· send_file(filepath, as_attachment=False, cache_control=None, ...)
+· render_template(template_name, context, template_dir)
+---
 ```
 
-
-## CLI Usage
-
-Lynk includes a simple CLI to run applications directly:
+## 🖥️ CLI Usage
 
 ```bash
-python -m lynk myapp:app --host 0.0.0.0 --port 8765 --debug
+python -m lynkio myapp:app --host 0.0.0.0 --port 8765 --protocol AUTO --debug
 ```
 
-The format is module:app, where app is the Lynk instance variable.
+The format is module:app where app is your Lynk instance.
 
 ---
 
-## CONTRIBUTING
+## 🤝 Contributing
+
+```text
+1. Fork the repository
+2. Create a feature branch (git checkout -b feature/amazing)
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
+
+---
+```
+
+## Lynkio Version
 
 ```python
-1. Fork the repository.
-2. Create a feature branch (git checkout -b feature/amazing-feature).
-3. Commit your changes (git commit -m 'Add amazing feature').
-4. Push to the branch (git push origin feature/amazing-feature).
-5. Open a Pull Request.
+pip install lynkio==1.2.7
+
+Avaible Versions
+
+ v1.1.4
+ 
+ v1.1.5
+ 
+ v1.1.6
+ 
+ v1.1.7
+ 
+ v1.1.8
+ 
+ v1.1.9
+ 
+ v1.2.0
+ 
+ v1.2.1
+ 
+ v1.2.3
+ 
+ v1.2.4
+ 
+ v1.2.5
+ 
+ v1.2.6
+ 
+ v1.2.7 (new)
 ```
+
+## 📄 License
+
+MIT License – see LICENSE for details.
 
 ---
 
-## LICENSE
+## 👤 Built by Alex Austin
 
-```python
-Distributed under the MIT License. See LICENSE for more information.
-
----
-
-## Built by (Alex Austin).
-```
+Lynkio is a modern, dependency‑free real‑time framework for Python developers who value simplicity and performance.
