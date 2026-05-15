@@ -1413,6 +1413,16 @@ class Lynk:
         for handler in self._internal_handlers[event]:
             asyncio.create_task(handler(client, data))
 
+
+    async def _safe_task_wrapper(self, task):
+        try:
+            await task()
+        except Exception as e:
+            self._logger.exception("Background task crashed")
+            if self._db and self.auto_sync_log:
+                await self._log_runtime("ERROR", f"Task {task.__name__} failed: {e}", "background_task")
+            raise
+
     # ------------------------------------------------------------------
     # Server lifecycle (AUTO mode starts both TCP and UDP)
     # ------------------------------------------------------------------
@@ -1442,7 +1452,7 @@ class Lynk:
 
         # Start background tasks
         for task in self._background_tasks:
-            asyncio.create_task(task())
+            asyncio.create_task(self._safe_task_wrapper(task))
 
         # Start scheduled tasks
         for interval, func in self._scheduled_tasks:
